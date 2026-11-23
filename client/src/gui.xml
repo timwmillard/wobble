@@ -1,7 +1,118 @@
-<Window Title="Counter" Width="320" Height="200">
-  <VBox Spacing="8">
-    <Label Name="count" Text="Count: 0" Slot.Padding="8" Slot.HAlign="Center"/>
-    <Button Text="Increment" OnClicked="counter.increment" Slot.HAlign="Center"/>
-    <Button Text="Decrement" OnClicked="counter.decrement" Slot.HAlign="Center"/>
-  </VBox>
+<Window Title="Wobble" Width="1180" Height="760" MinWidth="860" MinHeight="560">
+  <Overlay>
+
+    <!-- Connect screen -->
+    <Border Name="connect_screen" Padding="0" BorderWidth="0">
+      <Border Background="#262A33" CornerRadius="16" Padding="28,24" Shadow="24,0,8"
+              Slot.HAlign="Center" Slot.VAlign="Center" MinWidth="360">
+        <VBox Spacing="10">
+          <Label Text="Wobble" TextSize="34" Slot.HAlign="Center"/>
+          <Label Text="Draw, guess, laugh." Opacity="0.6" Slot.HAlign="Center"
+                 Slot.Padding="0,0,0,10"/>
+          <Label Text="Your name" Opacity="0.7"/>
+          <TextInput Name="name" Placeholder="Ana" MaxLength="16" OnCommitted="ui.join"
+                     Metric.ControlHeight="38"/>
+          <Label Text="Room code" Opacity="0.7"/>
+          <TextInput Name="room" Placeholder="abcd" MaxLength="24" OnCommitted="ui.join"
+                     Metric.ControlHeight="38"/>
+          <Label Text="Server" Opacity="0.7"/>
+          <TextInput Name="server" Text="ws://localhost:4000" OnCommitted="ui.join"
+                     Metric.ControlHeight="38"/>
+          <Button Name="join" Text="Join room" Style="Primary" OnClicked="ui.join"
+                  Metric.ControlHeight="42" Slot.Padding="0,10,0,0"/>
+          <Label Name="connect_error" Text="" Color="#FF6B6B" Wrap="true" MaxWidth="320"/>
+        </VBox>
+      </Border>
+    </Border>
+
+    <!-- Game screen -->
+    <VBox Name="game_screen" Visibility="Collapsed" Spacing="0">
+
+      <!-- Top bar: round, the word or its hint, the countdown -->
+      <Border Padding="16,10" BorderWidth="0" Background="#1E2128">
+        <HBox Spacing="12">
+          <Label Name="round" Text="Lobby" Opacity="0.75" MinWidth="140" Slot.VAlign="Center"/>
+          <Label Name="word" Text="" TextSize="24" TextAlign="Center" Slot.Fill="1"
+                 Slot.VAlign="Center"/>
+          <Label Name="timer" Text="" TextSize="22" TextAlign="Right" MinWidth="140"
+                 Slot.VAlign="Center"/>
+        </HBox>
+      </Border>
+
+      <HBox Slot.Fill="1" Spacing="0">
+
+        <!-- The canvas, its overlays and the drawer's tools -->
+        <VBox Slot.Fill="1" Spacing="8" Slot.Padding="12">
+          <Overlay Slot.Fill="1">
+            <Custom Name="canvas"/>
+
+            <Border Name="lobby_panel" Background="#262A33EE" CornerRadius="14" Padding="24,20"
+                    Slot.HAlign="Center" Slot.VAlign="Center" Visibility="Collapsed">
+              <VBox Spacing="12">
+                <Label Text="Waiting room" TextSize="22" Slot.HAlign="Center"/>
+                <Label Name="lobby_text" Text="" Opacity="0.75" Slot.HAlign="Center"/>
+                <Button Name="start" Text="Start game" Style="Primary" OnClicked="ui.start"
+                        Metric.ControlHeight="40" Slot.HAlign="Center"/>
+              </VBox>
+            </Border>
+
+            <Border Name="choose_panel" Background="#262A33EE" CornerRadius="14" Padding="24,20"
+                    Slot.HAlign="Center" Slot.VAlign="Center" Visibility="Collapsed">
+              <VBox Spacing="14">
+                <Label Name="choose_title" Text="Choose a word" TextSize="22" Slot.HAlign="Center"/>
+                <HBox Name="choices" Spacing="10" Slot.HAlign="Center">
+                  <Button Name="choice0" Text="" Style="Primary" OnClicked="ui.choose0"
+                          Metric.ControlHeight="44" Metric.PaddingX="18"/>
+                  <Button Name="choice1" Text="" Style="Primary" OnClicked="ui.choose1"
+                          Metric.ControlHeight="44" Metric.PaddingX="18"/>
+                  <Button Name="choice2" Text="" Style="Primary" OnClicked="ui.choose2"
+                          Metric.ControlHeight="44" Metric.PaddingX="18"/>
+                </HBox>
+              </VBox>
+            </Border>
+
+            <Border Name="reveal_panel" Background="#262A33EE" CornerRadius="14" Padding="24,20"
+                    Slot.HAlign="Center" Slot.VAlign="Center" Visibility="Collapsed">
+              <VBox Spacing="6">
+                <Label Text="The word was" Opacity="0.7" Slot.HAlign="Center"/>
+                <Label Name="reveal_word" Text="" TextSize="30" Slot.HAlign="Center"/>
+              </VBox>
+            </Border>
+
+            <Border Name="over_panel" Background="#262A33F2" CornerRadius="14" Padding="28,22"
+                    Slot.HAlign="Center" Slot.VAlign="Center" Visibility="Collapsed" MinWidth="300">
+              <VBox Spacing="10">
+                <Label Text="Game over" TextSize="26" Slot.HAlign="Center"/>
+                <VBox Name="ranking" Spacing="4"/>
+                <Button Name="again" Text="Play again" Style="Primary" OnClicked="ui.start"
+                        Metric.ControlHeight="40" Slot.HAlign="Center" Slot.Padding="0,8,0,0"/>
+              </VBox>
+            </Border>
+          </Overlay>
+
+          <HBox Name="tools" Spacing="8" Visibility="Collapsed">
+            <Custom Name="palette" Slot.Fill="1"/>
+            <Button Text="Undo" OnClicked="ui.undo" Metric.ControlHeight="40"/>
+            <Button Text="Clear" OnClicked="ui.clear" Metric.ControlHeight="40"/>
+          </HBox>
+        </VBox>
+
+        <Separator Orientation="Vertical"/>
+
+        <!-- Players and chat -->
+        <VBox Width="300" Spacing="0">
+          <Label Text="Players" Opacity="0.6" Slot.Padding="14,12,14,6"/>
+          <VBox Name="players" Spacing="2" Slot.Padding="8,0,8,8"/>
+          <Separator/>
+          <ScrollBox Name="chat_scroll" Slot.Fill="1">
+            <VBox Name="chat" Spacing="4" Slot.Padding="12"/>
+          </ScrollBox>
+          <Separator/>
+          <TextInput Name="guess" Placeholder="Type your guess..." MaxLength="100"
+                     OnCommitted="ui.guess" Slot.Padding="10" Metric.ControlHeight="40"/>
+        </VBox>
+      </HBox>
+    </VBox>
+
+  </Overlay>
 </Window>

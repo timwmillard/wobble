@@ -1,17 +1,17 @@
 # CLAUDE.md
 
-<!--
-Template for C projects. Copy into a project root as CLAUDE.md (and symlink
-AGENTS.md -> CLAUDE.md for other agents). Fill in or delete the <PLACEHOLDER>
-sections; everything else is project-independent policy.
--->
-
 ## Project
 
-<PROJECT NAME> — <one or two sentences on what it does>.
+Wobble client — the native (Raven) client for Wobble, a Pictionary-style party
+game played against the Phoenix server in `../backend`. See `../SCRIBBLE_PLAN.md`.
 
-- Targets: `<target>` (`src/main.c`), ...
-- Platforms: <macOS / Linux / Windows>
+- Targets: `wobble` (the app, `src/main.c` + `src/canvas.c`), `wobble_bot`
+  (headless bots, `src/bot.c`), `game_test` (`tests/game_test.c`)
+- Layers: `src/net/` is webc, copied from the chat project (keep it in sync
+  rather than forking it); `src/json.c` also comes from chat; `src/phx.c` and
+  `src/game.c` are the core (no I/O, no Raven); only `main.c` and `canvas.c`
+  touch Raven
+- Platforms: macOS, Linux, Windows (the bot is POSIX only)
 
 ## Core rule: a C compiler and CMake are the only build requirements
 
@@ -164,7 +164,7 @@ src/deps.c       implementations of single-header deps
 
 ## Tests
 
-<How tests are run, e.g. `ctest --test-dir build`.> Tests are plain C
+`ctest --test-dir build` (or `make test`). Tests are plain C
 executables built by the same CMake build, registered with `add_test`. No
 external test framework unless it is vendored.
 

@@ -1,5 +1,5 @@
 
-.PHONY: all run
+.PHONY: all run test
 
 NPROC ?= $(shell nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
 
@@ -10,8 +10,11 @@ build:
 	@cmake -B build
 
 run: all
-	@./build/base_demo
+	@./build/wobble
 
 clean:
 	@rm -rf build
 
+
+test: all
+	@ctest --test-dir build --output-on-failure

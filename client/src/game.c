@@ -1,0 +1,608 @@
+#include "game.h"
+
+#include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "json.h"
+#include "phx.h"
+
+#define CLIENT_ID "wobble-raven/0.1"
+
+// The smallest pen movement worth sending, in canvas units.
+#define MIN_POINT_DIST 1.5f
+
+const u32 game_palette[GAME_PALETTE_SIZE] = {
+    0xFFFFFF, 0x000000, 0x7F7F7F, 0xC1C1C1, 0xEF130B, 0xFF7100,
+    0xFFE400, 0x00CC00, 0x00B2FF, 0x231FD3, 0xA300BA, 0xD37CAA,
+    0xA0522D, 0x592F2A, 0xFFA5A5, 0x99EBFF,
+};
+
+typedef LIST(game_stroke) stroke_list;
+
+struct game {
+   game_send_fn send;
+   void *user_data;
+   game_state st;
+   u32 dirty;
+
+   arena scratch; // one incoming frame at a time
+   arena stroke_arena;
+   stroke_list strokes;
+
+   game_chat_line chat[GAME_CHAT_LINES];
+   usize chat_len;
+
+   // The channel.
+   char topic[40];
+   char name[64];
+   u64 next_ref;
+   char join_ref[24]; // of the current join
+   u64 last_heartbeat_ms;
+
+   // The pen.
+   int brush_color, brush_size;
+   bool pen_down;
+   u32 next_stroke_id;
+   usize sent; // points of the stroke in progress already sent
+   u64 last_chunk_ms;
+};
+
+/* Small helpers */
+
+// Copies s into a fixed buffer, cut at a UTF-8 character boundary.
+static void copy_str(char *dst, usize cap, string s) {
+   usize n = s.len < cap - 1 ? s.len : cap - 1;
+   if (n < s.len) {
+      while (n > 0 && ((u8)s.data[n] & 0xC0) == 0x80)
+         n--;
+   }
+   memcpy(dst, s.data, n);
+   dst[n] = '\0';
+}
+
+static int json_int(json *j, int fallback) {
+   return (j && j->type == JSON_NUMBER) ? (int)j->number : fallback;
+}
+
+static bool json_bool(json *j) {
+   return j && j->type == JSON_BOOL && j->boolean;
+}
+
+static bool str_is(const char *a, string b) {
+   return string_eq(string_view(a), b);
+}
+
+/* Chat */
+
+static void add_chat(game *g, game_chat_kind kind, string from, string text) {
+   if (g->chat_len == GAME_CHAT_LINES) {
+      memmove(&g->chat[0], &g->chat[1],
+              sizeof(g->chat[0]) * (GAME_CHAT_LINES - 1));
+      g->chat_len--;
+   }
+   game_chat_line *line = &g->chat[g->chat_len++];
+   line->kind = kind;
+   copy_str(line->from, sizeof(line->from), from);
+   copy_str(line->text, sizeof(line->text), text);
+   g->dirty |= GAME_DIRTY_CHAT;
+}
+
+static game_chat_kind chat_kind(string kind) {
+   if (string_eq(kind, S("system")))
+      return GAME_CHAT_SYSTEM;
+   if (string_eq(kind, S("correct")))
+      return GAME_CHAT_CORRECT;
+   if (string_eq(kind, S("secret")))
+      return GAME_CHAT_SECRET;
+   return GAME_CHAT_MSG;
+}
+
+/* Strokes */
+
+static void reset_strokes(game *g) {
+   arena_reset(&g->stroke_arena);
+   g->strokes = (stroke_list)list_init(&g->stroke_arena);
+   g->pen_down = false;
+   g->dirty |= GAME_DIRTY_CANVAS;
+}
+
+static game_stroke *find_open_stroke(game *g, u32 id) {
+   for (usize i = g->strokes.len; i-- > 0;) {
+      if (g->strokes.items[i].id == id && !g->strokes.items[i].done)
+         return &g->strokes.items[i];
+   }
+   return NULL;
+}
+
+static game_stroke *new_stroke(game *g, u32 id, int color, int size) {
+   game_stroke s = {
+       .id = id,
+       .color = (u8)(color & 15),
+       .size = (u8)(size < 1 ? 1 : size > 40 ? 40 : size),
+   };
+   s.pts = (game_point_list)list_init(&g->stroke_arena);
+   list_append(&g->strokes, s);
+   return &g->strokes.items[g->strokes.len - 1];
+}
+
+static i16 clamp_i16(int v, int lo, int hi) {
+   return (i16)(v < lo ? lo : v > hi ? hi : v);
+}
+
+// One chunk from the server: {id, pts:[x,y,...], c, s, end, p?}.
+static void apply_stroke(game *g, json *p) {
+   json *pts = json_get(p, S("pts"));
+   if (!pts || pts->type != JSON_ARRAY)
+      return;
+   u32 id = (u32)json_int(json_get(p, S("id")), 0);
+   game_stroke *s = find_open_stroke(g, id);
+   if (!s)
+      s = new_stroke(g, id, json_int(json_get(p, S("c")), 1),
+                     json_int(json_get(p, S("s")), 4));
+   json *pressure = json_get(p, S("p"));
+   for (usize i = 0; i + 1 < pts->len; i += 2) {
+      int pv = json_int(json_at(pressure, i / 2), 255);
+      game_point pt = {
+          clamp_i16(json_int(json_at(pts, i), 0), 0, GAME_CANVAS_W),
+          clamp_i16(json_int(json_at(pts, i + 1), 0), 0, GAME_CANVAS_H),
+          (u8)(pv < 0 ? 0 : pv > 255 ? 255 : pv),
+      };
+      list_append(&s->pts, pt);
+   }
+   s->done = json_bool(json_get(p, S("end")));
+   g->dirty |= GAME_DIRTY_CANVAS;
+}
+
+static void remove_stroke(game *g, u32 id) {
+   usize out = 0;
+   for (usize i = 0; i < g->strokes.len; i++) {
+      if (g->strokes.items[i].id != id)
+         g->strokes.items[out++] = g->strokes.items[i];
+   }
+   g->strokes.len = out;
+   g->dirty |= GAME_DIRTY_CANVAS;
+}
+
+/* Sending */
+
+static string next_ref(game *g, arena *a) {
+   return stringf(a, "%llu", (unsigned long long)++g->next_ref);
+}
+
+static void send_frame(game *g, string topic, string event, string payload,
+                       bool with_join_ref) {
+   if (!g->send)
+      return;
+   arena_temp t = arena_temp_begin(&g->scratch);
+   string_builder sb = sb_init(&g->scratch);
+   phx_write(&sb,
+             with_join_ref ? string_view(g->join_ref) : (string){0},
+             next_ref(g, &g->scratch), topic, event, payload);
+   g->send(sb.data, sb.len, g->user_data);
+   arena_temp_end(t);
+}
+
+static bool joined(const game *g) {
+   return g->st.phase >= GAME_LOBBY;
+}
+
+static void push(game *g, string event, string payload) {
+   if (joined(g))
+      send_frame(g, string_view(g->topic), event, payload, true);
+}
+
+static void send_join(game *g, u64 now_ms) {
+   arena_temp t = arena_temp_begin(&g->scratch);
+   string_builder p = sb_init(&g->scratch);
+   sb_append(&p, S("{\"name\":"));
+   json_write_string(&p, string_view(g->name));
+   sb_append(&p, S(",\"client\":\"" CLIENT_ID "\""));
+   if (g->st.token[0]) {
+      sb_append(&p, S(",\"token\":"));
+      json_write_string(&p, string_view(g->st.token));
+   }
+   sb_push(&p, '}');
+
+   // The join's ref doubles as the join_ref of everything on this channel.
+   snprintf(g->join_ref, sizeof(g->join_ref), "%llu",
+            (unsigned long long)(g->next_ref + 1));
+   send_frame(g, string_view(g->topic), S("phx_join"), sb_string(&p), true);
+   arena_temp_end(t);
+
+   g->st.phase = GAME_JOINING;
+   g->last_heartbeat_ms = now_ms;
+   g->dirty |= GAME_DIRTY_PHASE;
+}
+
+// The points of the stroke in progress not yet sent, plus the last sent one so
+// each chunk joins on to the one before.
+static void send_chunk(game *g, bool end, u64 now_ms) {
+   if (g->strokes.len == 0)
+      return;
+   game_stroke *s = &g->strokes.items[g->strokes.len - 1];
+   usize from = g->sent > 0 ? g->sent - 1 : 0;
+   if (s->pts.len == 0 || (from + 1 >= s->pts.len && g->sent && !end))
+      return;
+
+   arena_temp t = arena_temp_begin(&g->scratch);
+   string_builder p = sb_init(&g->scratch);
+   bool has_pressure = false;
+   sb_appendf(&p, "{\"id\":%u,\"pts\":[", (unsigned)s->id);
+   for (usize i = from; i < s->pts.len; i++) {
+      sb_appendf(&p, "%s%d,%d", i > from ? "," : "", s->pts.items[i].x,
+                 s->pts.items[i].y);
+      has_pressure |= s->pts.items[i].pressure != 255;
+   }
+   sb_push(&p, ']');
+   if (has_pressure) {
+      sb_append(&p, S(",\"p\":["));
+      for (usize i = from; i < s->pts.len; i++)
+         sb_appendf(&p, "%s%u", i > from ? "," : "",
+                    (unsigned)s->pts.items[i].pressure);
+      sb_push(&p, ']');
+   }
+   sb_appendf(&p, ",\"c\":%u,\"s\":%u,\"end\":%s}", (unsigned)s->color,
+              (unsigned)s->size, end ? "true" : "false");
+   push(g, S("stroke"), sb_string(&p));
+   arena_temp_end(t);
+
+   g->sent = s->pts.len;
+   g->last_chunk_ms = now_ms;
+}
+
+/* Incoming state */
+
+static game_phase phase_from(string s) {
+   if (string_eq(s, S("choosing")))
+      return GAME_CHOOSING;
+   if (string_eq(s, S("drawing")))
+      return GAME_DRAWING;
+   if (string_eq(s, S("reveal")))
+      return GAME_REVEAL;
+   if (string_eq(s, S("game_over")))
+      return GAME_OVER;
+   return GAME_LOBBY;
+}
+
+static void apply_state(game *g, json *s, u64 now_ms) {
+   game_state *st = &g->st;
+   int turn = json_int(json_get(s, S("turn")), st->turn);
+   game_phase phase = phase_from(json_str(json_get(s, S("phase"))));
+
+   // A new turn starts with a blank canvas and no word.
+   if (turn != st->turn) {
+      if (phase == GAME_CHOOSING || phase == GAME_LOBBY) {
+         reset_strokes(g);
+         st->word[0] = '\0';
+         st->has_choices = false;
+         g->dirty |= GAME_DIRTY_CHOICES;
+      }
+   }
+   if (phase != GAME_CHOOSING && st->has_choices) {
+      st->has_choices = false;
+      g->dirty |= GAME_DIRTY_CHOICES;
+   }
+
+   st->phase = phase;
+   st->turn = turn;
+   st->round = json_int(json_get(s, S("round")), 0);
+   st->rounds = json_int(json_get(s, S("rounds")), 0);
+   copy_str(st->host, sizeof(st->host), json_str(json_get(s, S("host"))));
+   copy_str(st->drawer, sizeof(st->drawer),
+            json_str(json_get(s, S("drawer"))));
+   copy_str(st->hint, sizeof(st->hint), json_str(json_get(s, S("hint"))));
+   string word = json_str(json_get(s, S("word")));
+   if (word.len)
+      copy_str(st->word, sizeof(st->word), word);
+
+   int left = json_int(json_get(s, S("time_left_ms")), 0);
+   st->deadline_ms = left > 0 ? now_ms + (u64)left : 0;
+
+   json *players = json_get(s, S("players"));
+   st->player_count = 0;
+   for (usize i = 0; players && i < players->len; i++) {
+      if (st->player_count == GAME_MAX_PLAYERS)
+         break;
+      json *p = json_at(players, i);
+      game_player *gp = &st->players[st->player_count++];
+      copy_str(gp->id, sizeof(gp->id), json_str(json_get(p, S("id"))));
+      copy_str(gp->name, sizeof(gp->name), json_str(json_get(p, S("name"))));
+      gp->score = json_int(json_get(p, S("score")), 0);
+      gp->guessed = json_bool(json_get(p, S("guessed")));
+      gp->drawing = json_bool(json_get(p, S("drawing")));
+      gp->connected = json_bool(json_get(p, S("connected")));
+   }
+   g->dirty |= GAME_DIRTY_PHASE | GAME_DIRTY_PLAYERS;
+}
+
+static void set_error(game *g, string text) {
+   copy_str(g->st.error, sizeof(g->st.error), text);
+   g->dirty |= GAME_DIRTY_ERROR;
+}
+
+static void on_join_reply(game *g, const phx_msg *m, u64 now_ms) {
+   json *r = phx_reply_response(m);
+   if (!string_eq(phx_reply_status(m), S("ok"))) {
+      string reason = json_str(json_get(r, S("reason")));
+      set_error(g, reason.len ? reason : S("join failed"));
+      g->st.phase = GAME_OFFLINE;
+      g->dirty |= GAME_DIRTY_PHASE;
+      return;
+   }
+   copy_str(g->st.you, sizeof(g->st.you), json_str(json_get(r, S("you"))));
+   copy_str(g->st.token, sizeof(g->st.token),
+            json_str(json_get(r, S("token"))));
+   g->st.error[0] = '\0';
+   g->dirty |= GAME_DIRTY_ERROR;
+
+   g->st.turn = -1; // so the state below counts as a new turn
+   apply_state(g, json_get(r, S("state")), now_ms);
+   reset_strokes(g);
+   json *strokes = json_get(r, S("strokes"));
+   for (usize i = 0; strokes && i < strokes->len; i++)
+      apply_stroke(g, json_at(strokes, i));
+}
+
+static void handle(game *g, const phx_msg *m, u64 now_ms) {
+   json *p = m->payload;
+   string ev = m->event;
+
+   if (string_eq(ev, S("phx_reply"))) {
+      if (str_is(g->join_ref, m->ref) && g->st.phase == GAME_JOINING) {
+         on_join_reply(g, m, now_ms);
+      } else if (!string_eq(phx_reply_status(m), S("ok"))) {
+         string reason =
+             json_str(json_get(phx_reply_response(m), S("reason")));
+         if (reason.len)
+            set_error(g, reason);
+      }
+      return;
+   }
+   if (!str_is(g->topic, m->topic))
+      return;
+   // Stale frames from an earlier join of this topic.
+   if (m->join_ref.len && !str_is(g->join_ref, m->join_ref))
+      return;
+
+   if (string_eq(ev, S("state"))) {
+      apply_state(g, p, now_ms);
+   } else if (string_eq(ev, S("choices"))) {
+      json *words = json_get(p, S("words"));
+      for (usize i = 0; i < 3; i++)
+         copy_str(g->st.choices[i], sizeof(g->st.choices[i]),
+                  json_str(json_at(words, i)));
+      g->st.has_choices = words && words->len == 3;
+      g->dirty |= GAME_DIRTY_CHOICES;
+   } else if (string_eq(ev, S("word"))) {
+      copy_str(g->st.word, sizeof(g->st.word), json_str(json_get(p, S("word"))));
+      g->dirty |= GAME_DIRTY_PHASE;
+   } else if (string_eq(ev, S("stroke"))) {
+      apply_stroke(g, p);
+   } else if (string_eq(ev, S("undo"))) {
+      remove_stroke(g, (u32)json_int(json_get(p, S("id")), -1));
+   } else if (string_eq(ev, S("clear"))) {
+      reset_strokes(g);
+   } else if (string_eq(ev, S("chat"))) {
+      add_chat(g, chat_kind(json_str(json_get(p, S("kind")))),
+               json_str(json_get(p, S("from"))),
+               json_str(json_get(p, S("text"))));
+   } else if (string_eq(ev, S("close"))) {
+      arena_temp t = arena_temp_begin(&g->scratch);
+      string text = stringf(&g->scratch, "'" STR_FMT "' is close!",
+                            STR_ARG(json_str(json_get(p, S("text")))));
+      add_chat(g, GAME_CHAT_CLOSE, S(""), text);
+      arena_temp_end(t);
+   } else if (string_eq(ev, S("phx_error")) || string_eq(ev, S("phx_close"))) {
+      // The channel died on the server; join again and keep our seat.
+      send_join(g, now_ms);
+   }
+}
+
+/* Public API */
+
+game *game_new(game_send_fn send, void *user_data) {
+   game *g = calloc(1, sizeof(*g));
+   if (!g)
+      return NULL;
+   g->send = send;
+   g->user_data = user_data;
+   g->strokes = (stroke_list)list_init(&g->stroke_arena);
+   g->brush_color = 1;
+   g->brush_size = 6;
+   return g;
+}
+
+void game_free(game *g) {
+   if (!g)
+      return;
+   arena_release(&g->scratch);
+   arena_release(&g->stroke_arena);
+   free(g);
+}
+
+void game_connected(game *g, const char *room, const char *name,
+                    const char *token, u64 now_ms) {
+   snprintf(g->topic, sizeof(g->topic), "room:%s", room);
+   copy_str(g->name, sizeof(g->name), string_view(name));
+   if (token)
+      copy_str(g->st.token, sizeof(g->st.token), string_view(token));
+   send_join(g, now_ms);
+}
+
+void game_disconnected(game *g, const char *reason) {
+   g->st.phase = GAME_OFFLINE;
+   g->st.deadline_ms = 0;
+   g->pen_down = false;
+   set_error(g, string_view(reason ? reason : "disconnected"));
+   g->dirty |= GAME_DIRTY_PHASE;
+}
+
+void game_on_message(game *g, const char *text, usize len, u64 now_ms) {
+   phx_msg m;
+   if (phx_parse(&g->scratch, string_view_bytes(text, len), &m))
+      handle(g, &m, now_ms);
+   arena_reset(&g->scratch);
+}
+
+void game_tick(game *g, u64 now_ms) {
+   if (g->st.phase >= GAME_JOINING &&
+       now_ms - g->last_heartbeat_ms >= GAME_HEARTBEAT_MS) {
+      send_frame(g, S("phoenix"), S("heartbeat"), S("{}"), false);
+      g->last_heartbeat_ms = now_ms;
+   }
+   if (g->pen_down && now_ms - g->last_chunk_ms >= GAME_CHUNK_MS)
+      send_chunk(g, false, now_ms);
+}
+
+void game_start(game *g) {
+   if (game_is_host(g) &&
+       (g->st.phase == GAME_LOBBY || g->st.phase == GAME_OVER))
+      push(g, S("start"), S("{}"));
+}
+
+void game_choose(game *g, int index) {
+   if (index < 0 || index > 2 || !g->st.has_choices || !game_is_drawer(g))
+      return;
+   char payload[32];
+   snprintf(payload, sizeof(payload), "{\"index\":%d}", index);
+   push(g, S("choose"), string_view(payload));
+   g->st.has_choices = false;
+   g->dirty |= GAME_DIRTY_CHOICES;
+}
+
+void game_guess(game *g, const char *text) {
+   string t = string_trim(string_view(text));
+   if (t.len == 0 || !joined(g))
+      return;
+   arena_temp tmp = arena_temp_begin(&g->scratch);
+   string_builder p = sb_init(&g->scratch);
+   char cut[401];
+   copy_str(cut, sizeof(cut), t);
+   sb_append(&p, S("{\"text\":"));
+   json_write_string(&p, string_view(cut));
+   sb_push(&p, '}');
+   push(g, S("guess"), sb_string(&p));
+   arena_temp_end(tmp);
+}
+
+void game_set_brush(game *g, int color, int size) {
+   g->brush_color = color < 0 ? 0 : color >= GAME_PALETTE_SIZE ? 1 : color;
+   g->brush_size = size < 1 ? 1 : size > 40 ? 40 : size;
+}
+
+static game_point make_point(float x, float y, float pressure) {
+   game_point p = {
+       clamp_i16((int)lroundf(x), 0, GAME_CANVAS_W),
+       clamp_i16((int)lroundf(y), 0, GAME_CANVAS_H),
+       255,
+   };
+   if (pressure >= 0.0f)
+      p.pressure = (u8)lroundf((pressure > 1.0f ? 1.0f : pressure) * 255.0f);
+   return p;
+}
+
+void game_pen_down(game *g, float x, float y, float pressure, u64 now_ms) {
+   if (!game_can_draw(g))
+      return;
+   if (g->pen_down)
+      game_pen_up(g, now_ms);
+   game_stroke *s =
+       new_stroke(g, ++g->next_stroke_id, g->brush_color, g->brush_size);
+   list_append(&s->pts, make_point(x, y, pressure));
+   g->pen_down = true;
+   g->sent = 0;
+   g->last_chunk_ms = now_ms;
+   g->dirty |= GAME_DIRTY_CANVAS;
+}
+
+void game_pen_move(game *g, float x, float y, float pressure, u64 now_ms) {
+   if (!g->pen_down || !game_can_draw(g) || g->strokes.len == 0)
+      return;
+   game_stroke *s = &g->strokes.items[g->strokes.len - 1];
+   game_point last = s->pts.items[s->pts.len - 1];
+   game_point pt = make_point(x, y, pressure);
+   float dx = (float)(pt.x - last.x), dy = (float)(pt.y - last.y);
+   if (dx * dx + dy * dy < MIN_POINT_DIST * MIN_POINT_DIST)
+      return;
+   list_append(&s->pts, pt);
+   g->dirty |= GAME_DIRTY_CANVAS;
+   if (s->pts.len - g->sent >= GAME_CHUNK_POINTS)
+      send_chunk(g, false, now_ms);
+}
+
+void game_pen_up(game *g, u64 now_ms) {
+   if (!g->pen_down)
+      return;
+   g->pen_down = false;
+   if (g->strokes.len == 0)
+      return;
+   g->strokes.items[g->strokes.len - 1].done = true;
+   if (game_can_draw(g))
+      send_chunk(g, true, now_ms);
+}
+
+void game_undo(game *g) {
+   if (!game_can_draw(g) || g->pen_down || g->strokes.len == 0)
+      return;
+   u32 id = g->strokes.items[g->strokes.len - 1].id;
+   g->strokes.len--;
+   g->dirty |= GAME_DIRTY_CANVAS;
+   char payload[32];
+   snprintf(payload, sizeof(payload), "{\"id\":%u}", (unsigned)id);
+   push(g, S("undo"), string_view(payload));
+}
+
+void game_clear(game *g) {
+   if (!game_can_draw(g))
+      return;
+   reset_strokes(g);
+   push(g, S("clear"), S("{}"));
+}
+
+const game_state *game_get_state(const game *g) {
+   return &g->st;
+}
+
+const game_stroke *game_strokes(const game *g, usize *count) {
+   *count = g->strokes.len;
+   return g->strokes.items;
+}
+
+const game_chat_line *game_chat(const game *g, usize *count) {
+   *count = g->chat_len;
+   return g->chat;
+}
+
+const game_player *game_me(const game *g) {
+   for (int i = 0; i < g->st.player_count; i++) {
+      if (strcmp(g->st.players[i].id, g->st.you) == 0)
+         return &g->st.players[i];
+   }
+   return NULL;
+}
+
+bool game_is_host(const game *g) {
+   return g->st.you[0] && strcmp(g->st.host, g->st.you) == 0;
+}
+
+bool game_is_drawer(const game *g) {
+   return g->st.you[0] && strcmp(g->st.drawer, g->st.you) == 0;
+}
+
+bool game_can_draw(const game *g) {
+   return g->st.phase == GAME_DRAWING && game_is_drawer(g);
+}
+
+int game_time_left_ms(const game *g, u64 now_ms) {
+   if (!g->st.deadline_ms || now_ms >= g->st.deadline_ms)
+      return 0;
+   return (int)(g->st.deadline_ms - now_ms);
+}
+
+u32 game_dirty(game *g) {
+   u32 d = g->dirty;
+   g->dirty = 0;
+   return d;
+}

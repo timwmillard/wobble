@@ -11,9 +11,10 @@ We are building a Pictionary-style party game. Players join a room. They take tu
 | Layer | Choice | Why |
 | --- | --- | --- |
 | Backend | Elixir + Phoenix (Channels, Presence) | One supervised process per room owns the game; WebSocket broadcast comes built in; it scales to thousands of rooms on one small box |
+| Database | SQLite via Ecto (`ecto_sqlite3`) | Live game state stays in memory in the room processes. The database is only for what has to outlast a game (word lists, stats, accounts later). SQLite needs no server; moving to Postgres at deploy time means changing the adapter and config, not the code |
 | Client UI | [Raven](https://oscar-soirey.github.io/Raven/) (C11) | One C codebase targets Windows, Linux and macOS (Vulkan) and the browser (WebAssembly + WebGL 2); supports pen input and custom drawing |
-| Client networking | Our existing C network library | Native: raw sockets. Web: needs a browser-WebSocket transport (see Risks) |
-| JSON | cJSON (vendored) | Small, MIT-licensed, compiles to WASM unchanged |
+| Client networking | Our existing C network library, **webc** (copied from `chat/src/net` into `client/src/net`) | Native: HTTP/1.1 + WebSocket (RFC 6455) + SSE on the OS's TLS, so `wss://` works today. Web: needs a browser-WebSocket transport (see Risks) |
+| JSON | Our own `json.c` / `json.h` (copied from `chat/src`) | Arena-backed parser (`json_parse`, `json_get`, `json_at`, `json_str`) plus `json_write_string` for output; plain C11, no extra dependency |
 | Web hosting | Phoenix serves the WASM build | Link `game.example/r/abcd` opens straight into the room |
 
 **Guiding rules for whoever builds this**
@@ -69,10 +70,10 @@ Clients speak the standard Phoenix Channels V2 JSON format over one WebSocket. E
 
 | Event | Payload | Who may send | Server action |
 | --- | --- | --- | --- |
-| `phx_join` | `{name, client}` | anyone | Adds the player; replies `{you, state, strokes}` |
+| `phx_join` | `{name, client, token?}` | anyone | Adds the player, or gives back the seat that `token` names; replies `{you, token, state, strokes}` |
 | `start` | `{}` | host, in Lobby or Game over | Starts a new game |
 | `choose` | `{index: 0..2}` | drawer, in Choosing | Locks in the word |
-| `stroke` | `{id, pts:[x,y,...], c, s, end}` | drawer, in Drawing | Saves it, then sends it to everyone else |
+| `stroke` | `{id, pts:[x,y,...], c, s, end, p?}` | drawer, in Drawing | Saves it, then sends it to everyone else. No reply unless it's rejected |
 | `undo` | `{id}` | drawer, in Drawing | Removes that stroke for everyone |
 | `clear` | `{}` | drawer, in Drawing | Wipes the canvas for everyone |
 | `guess` | `{text}` (max 100 chars) | anyone | Checks it against the word, or sends it as chat |
@@ -86,11 +87,12 @@ Clients speak the standard Phoenix Channels V2 JSON format over one WebSocket. E
 | `word` | drawer, and each guesser once correct | `{word}` |
 | `stroke` | everyone except the drawer | same payload the drawer sent |
 | `undo` / `clear` | everyone except the drawer | `{id}` / `{}` |
-| `chat` | everyone, or only guessed players and the drawer | `{from, text, kind: msg\|system\|correct\|secret}` |
+| `chat` | everyone, or only guessed players and the drawer | `{from, from_id, text, kind: msg\|system\|correct\|secret}` (`from` is null for system lines) |
 | `close` | that guesser only | `{text}` |
 
 **Stroke encoding**
 
+- Each chunk after a stroke's first repeats the previous chunk's last point, so every chunk draws on its own and joins on to the last; receivers just append.
 - The canvas is a fixed 800×600 coordinate space. Clients scale it to fit their window.
 - One stroke = one pen-down-to-pen-up line. The drawer sends it in chunks about every 33 ms. All chunks share an `id`; `end:true` marks pen-up.
 - `c` = palette index 0–15, `s` = brush size 1–40. Coordinates are integers. Pen pressure can come later as optional `p:[...]` values (0–255).
@@ -100,18 +102,20 @@ Clients speak the standard Phoenix Channels V2 JSON format over one WebSocket. E
 
 One GenServer per room holds the whole game state. Channels stay thin: they check message shapes and forward to the room.
 
+Rejected events reply `{status: "error", response: {reason}}` with reasons such as `not_host`, `not_drawer`, `wrong_phase`, `not_enough_players`, `room_full`, `invalid`, `rate_limited`, `too_much_ink`. Rate limits (strokes 60/s, chat 5 per 3 s) are kept per channel. For local testing, `WOBBLE_FAST=1 mix phx.server` shortens the timers (2 s choose, 8 s draw, 0.5 s reveal).
+
 **Modules**
 
 | Module | Job |
 | --- | --- |
-| `Scribble.Application` | Starts `Registry` (`Scribble.RoomRegistry`), `DynamicSupervisor` (`Scribble.RoomSupervisor`), `Phoenix.PubSub`, `ScribbleWeb.Presence`, and the Endpoint |
-| `Scribble.Room` | GenServer, `restart: :temporary`, registered as `{:via, Registry, {RoomRegistry, code}}`. Owns state, timers and scoring |
-| `Scribble.Rules` | Pure functions: `next_drawer/1`, `score/2`, `hint/2`, `close_guess?/2`, `normalize/1`. Unit-tested without processes |
-| `Scribble.Words` | Word list (start with 300–500 easy nouns in `priv/words/en.txt`); `pick(3, exclude: used)` |
-| `ScribbleWeb.UserSocket` | `channel "room:*", RoomChannel`; assigns a random `player_id` on connect |
-| `ScribbleWeb.RoomChannel` | Joins, validates payloads, casts to the room, relays private `{:push, event, payload}` messages |
-| `ScribbleWeb.Presence` | Tracks who is connected; drives `connected` in the player list |
-| `ScribbleWeb.PageController` | Serves the WASM client at `/` and `/r/:code`, with COOP/COEP headers if threads are used |
+| `Backend.Application` | Starts `Registry` (`Backend.RoomRegistry`), `DynamicSupervisor` (`Backend.RoomSupervisor`), `Phoenix.PubSub`, and the Endpoint |
+| `Backend.Room` | GenServer, `restart: :temporary`, registered as `{:via, Registry, {RoomRegistry, code}}`. Owns state, timers and scoring |
+| `Backend.Rules` | Pure functions: `next_drawer/1`, `score/2`, `hint/2`, `close_guess?/2`, `normalize/1`. Unit-tested without processes |
+| `Backend.Words` | Word list (start with 300–500 easy nouns in `priv/words/en.txt`); `pick(3, exclude: used)` |
+| `BackendWeb.UserSocket` | `channel "room:*", RoomChannel`; assigns a random `player_id` on connect |
+| `BackendWeb.RoomChannel` | Joins, validates payloads, casts to the room, relays private `{:push, event, payload}` messages |
+| ~~`BackendWeb.Presence`~~ | Not needed: the Room monitors each channel pid, and that drives `connected` |
+| `BackendWeb.PageController` | Serves the WASM client at `/` and `/r/:code`, with COOP/COEP headers if threads are used |
 
 **Room state**
 
@@ -142,15 +146,15 @@ One GenServer per room holds the whole game state. Channels stay thin: they chec
 
 **Config**
 
-All timings and limits live in `config :scribble, :rules` so tests can shorten them. Read `PORT`, `PHX_HOST` and `SECRET_KEY_BASE` in `runtime.exs`. Native clients send no `Origin` header. Keep `check_origin` set to your web host, which only applies to browsers.
+All timings and limits live in `config :backend, :rules` so tests can shorten them. Read `PORT`, `PHX_HOST` and `SECRET_KEY_BASE` in `runtime.exs`. Native clients send no `Origin` header. Keep `check_origin` set to your web host, which only applies to browsers.
 
 ## Client design (C + Raven)
 
 The client has three layers. Only the bottom two touch platform APIs, and only `ui/` touches Raven.
 
-1. **`core/`** — plain C11, no I/O. It holds the Phoenix channel state (refs, join, heartbeat timing), a copy of the game state, the stroke list and the chat log. It's driven by `core_on_message(json)` and `core_tick(now_ms)`, and it emits outgoing frames through a `net_send` callback.
-2. **`net/`** — the transport. `net_native.c` wraps our C network library (WebSocket over TCP; TLS later). `net_web.c` uses `emscripten/websocket.h`. Both implement the same interface.
-3. **`ui/`** — Raven. It holds the XML layouts, the canvas widget and the event handlers. It reads core state and calls core actions; nothing else.
+1. **core (`src/phx.c`, `src/game.c`)** — plain C11, no I/O. It holds the Phoenix channel state (refs, join, heartbeat timing), a copy of the game state, the stroke list and the chat log. It's driven by `core_on_message(json)` and `core_tick(now_ms)`, and it emits outgoing frames through a `net_send` callback.
+2. **`net/`** — the transport. `net/` is webc, copied as-is from `chat/src/net` (see *Networking and JSON* below). `transport_native.c` wraps its `ws_*` API; `transport_web.c` uses `emscripten/websocket.h`. Both implement the same `transport_*` interface.
+3. **ui (`src/main.c`, `src/canvas.c`, `src/gui.xml`)** — Raven. It holds the XML layouts, the canvas widget and the event handlers. It reads core state and calls core actions; nothing else.
 
 **Core API (sketch)**
 
@@ -190,8 +194,9 @@ The network layer and the UI may run on different threads. Push incoming frames 
 
 **Canvas widget**
 
+- Raven API, as used in `pen_test/main.c`: an `R_WIDGET_CUSTOM` with `Rcustom_set_paint_callback` (draw with `Rdraw_line` / `Rdraw_circle` / `Rdraw_rect`) and `Rwidget_set_pen_callback` for input (`RPenEvent`: `phase` down/move/up/hover/leave, `local_x/y`, `pressure`, `eraser`). `Rwidget_set_pen_mouse(..., R_TRUE)` so the mouse draws too; `Rwidget_invalidate` to repaint.
 - Map the 800×600 game space into the widget with letterboxing. Convert pointer and pen events back into game space before calling `game_pen_*`.
-- Keep a cached layer (texture) of finished strokes, and draw only the stroke in progress live. Redraw the cache from the stroke list on `undo`, `clear` or resize.
+- *(Not done yet: v1 repaints every stroke each frame, which is fine for a turn's worth of ink.)* Keep a cached layer (texture) of finished strokes, and draw only the stroke in progress live. Redraw the cache from the stroke list on `undo`, `clear` or resize.
 - Draw each segment as a thick line with round caps, at the stroke's size. Use pen pressure as width when it's available.
 - Thin out input locally: skip points less than 1.5 px from the last one, and send a chunk every 33 ms or every 64 points.
 - Draw the local stroke immediately, without waiting for the server. Because the drawer's own strokes aren't echoed back, there's nothing to reconcile.
@@ -202,6 +207,27 @@ The network layer and the UI may run on different threads. Push incoming frames 
 - The page reads the room code from `/r/:code` and the server from `location.host` (`wss` when the page is served over https).
 - Fit the canvas to the viewport and handle `devicePixelRatio`. Map touch and pen pointer events to `game_pen_*` so phones and tablets work.
 - If the build needs pthreads, Phoenix must send `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp` on the play page.
+
+## Networking and JSON (client)
+
+Both come from the `chat` project (`~/dev/x/chat`), which already ships a Raven app talking to a streaming HTTP API.
+
+**webc (`client/src/net/`)** — copied verbatim from `chat/src/net`. Public API is `net.h` only; everything else is internal.
+
+- `ws_connect(&(ws_desc){.url, .headers, .on_open, .on_message, .on_close, .on_error, .user_data})` starts a connection on its own network thread and returns at once. `ws_send_text` / `ws_close` are thread-safe; `ws_free` can be called from anywhere and guarantees no callback runs afterwards.
+- Backends: Network.framework on Apple, POSIX sockets + system libssl (loaded at runtime) on other Unix, Winsock + SChannel on Windows. So `ws://` and `wss://` both work natively with no extra dependency. Link `-framework Network -framework Security` (Apple), `ws2_32 secur32 bcrypt` (Windows), `dl pthread` (other).
+- webc sends its own WebSocket pings (`ping_interval_ms`, default 30 s). Those keep the TCP connection alive but are **not** Phoenix heartbeats; the core still sends `["null","ref","phoenix","heartbeat",{}]` every 30 s.
+- CMake: the same `net_library()` function as in chat builds `src/net/*.c` into a static `net` library.
+
+**Threading.** webc calls back on its network thread. As in chat's `main.c`, each callback copies the frame into a heap event and hands it to the UI thread with `Rtask_post(fn, ev)`. Only the UI thread touches `Game`. The bot (no Raven) uses a small mutex-protected queue instead.
+
+**JSON (`client/src/json.c`, `json.h`)** — copied from `chat/src`. Uses `base.h` arenas and `string` slices.
+
+- Parse: `json *j = json_parse(&arena, text)` (NULL if invalid), then `json_get(j, S("key"))`, `json_at(j, i)`, `json_str(j)`; `j->type`, `j->number`, `j->boolean`, `j->len`. All accessors are NULL-safe, so lookups chain.
+- Write: frames are built with a `string_builder` and `json_write_string(&sb, s)` for every string, so escaping is always right.
+- Each incoming frame is parsed into a scratch arena that is reset after the frame is applied to `Game`; anything kept (names, chat, strokes) is copied into the game's own storage.
+
+**Phoenix frames on top.** `phx.c` builds `[join_ref, ref, topic, event, payload]` arrays and parses incoming ones into `{join_ref, ref, topic, event, payload json*}`. It owns ref counters and heartbeat timing; `game.c` owns everything game-specific.
 
 ## Milestones
 
@@ -220,24 +246,28 @@ There are five milestones, each ending in something you can demo. M0 decides whe
 
 ### M1 — Protocol and server
 
-- [ ] `mix phx.new server --no-ecto`; add `Rules`, `Room`, `RoomChannel`, `Presence` and the word list
-- [ ] The full turn flow with timers, hints, scoring, and leaving or rejoining
-- [ ] C `core/` with a fake-transport test harness
-- [ ] `tools/bot`: bots that join, take turns drawing random strokes, and guess (sometimes correctly)
+- [x] Phoenix app in `backend/` with Ecto on SQLite (`ecto_sqlite3`; `backend_dev.db` / `backend_test.db`, git-ignored); add `Rules`, `Room`, `RoomChannel` and the word list (Presence dropped, see Backend design)
+- [x] The full turn flow with timers, hints, scoring, and leaving or rejoining (rejoin by token pulled forward from M4)
+- [x] C core (`client/src/phx.c`, `game.c`) with a fake-transport test harness (`client/tests/game_test.c`)
+- [x] Bots: `client/src/bot.c` (`wobble_bot`) on the same core and transport as the app; bots in one process share the drawer's word so some guesses are right
+
+**Status (Nov 23):** done locally — 8 bots finished a 3-round game against `WOBBLE_FAST=1 mix phx.server` with no server errors and the word-leak check on; 26 ExUnit tests and the core tests pass. Not yet wired into CI.
 
 **Done when:** 8 bots finish a 3-round game in CI. The ExUnit and core tests pass. No guesser ever receives the word before guessing it (tested).
 
 ### M2 — Playable native client
 
-- [ ] Raven screens: connect, lobby, game, word choice, reveal, game over
-- [ ] Palette, brush sizes, eraser, undo, clear; chat with correct, close and secret styling
-- [ ] Countdown, hint display, player list with scores and a guessed mark
+- [x] Raven screens: connect, lobby, game, word choice, reveal, game over (`client/src/gui.xml`)
+- [x] Palette, brush sizes, eraser, undo, clear; chat with correct, close and secret styling
+- [x] Countdown, hint display, player list with scores and a guessed mark
+
+**Status (Nov 23):** built and seen working against bots on macOS (screenshots of connect, guessing, word choice and drawing). Mouse and pen drawing in the app have not been exercised by a person yet; Linux and Windows builds untried.
 
 **Done when:** four people on three operating systems play a full game against a hosted server without crashes.
 
 ### M3 — Web client
 
-- [ ] `net_web.c`; WASM build output in `priv/static/play`; routes `/` and `/r/:code`
+- [ ] `transport_web.c`; WASM build output in `priv/static/play`; routes `/` and `/r/:code`
 - [ ] Responsive layout for phone portrait (canvas on top, chat below); touch and stylus input
 - [ ] COOP/COEP headers if M0 showed they're needed
 
@@ -259,17 +289,17 @@ The biggest unknowns are all on the client side, and Milestone 0 exists to settl
 | Risk | Impact | Mitigation / check |
 | --- | --- | --- |
 | Raven is pre-1.0 (the site says v0.1, the README says v0.2.0); its API may change | Rework of the UI layer | Pin a Raven commit. Keep all Raven calls inside `ui/`. Budget a day per Raven upgrade |
-| Our network library has no browser transport | No web client | Write `net_web.c` on `emscripten/websocket.h` behind the same `net_*` interface |
+| Our network library has no browser transport | No web client | Write `transport_web.c` on `emscripten/websocket.h` behind the same `transport_*` interface |
 | Raven's web build may need pthreads | Hosting must send COOP/COEP headers, which can break embeds | Check in M0. If it's needed, set the headers on `/play` only |
 | Pen pressure and stylus may not work in Raven's web build | Only flat-width strokes on web | Test a Raven demo with a stylus in Chrome and Safari. Fall back to fixed width |
 | Custom canvas drawing may be slow in Raven with thousands of segments | Lag on long drawings | Use the cached finished-stroke layer. Cap strokes per turn |
 | Vulkan is unavailable on some machines (old GPUs, VMs) | Native app won't start | Point those users to the web client. Show a clear error at startup |
-| Native TLS (`wss://`) | Plain `ws://` is blocked on some networks | Put Caddy in front of Phoenix. Add TLS to the native network library (mbedTLS) before public release |
+| Native TLS (`wss://`) | Plain `ws://` is blocked on some networks | **Resolved:** webc already speaks `wss://` on the OS's TLS (Network.framework / SChannel / system libssl loaded at runtime). Caddy still terminates TLS in front of Phoenix |
 | Abuse: offensive drawings or chat, spam rooms | Bad experience in public rooms | Rooms are private by code at first. Add a vote-kick and rate limits; public matchmaking comes later |
 
 **Open questions for the owner**
 
-- [ ] Does our network library already support WebSocket framing and TLS, or only raw TCP?
+- [x] Does our network library already support WebSocket framing and TLS, or only raw TCP? **Yes, both** — webc has a full RFC 6455 client and uses the OS's TLS.
 - [ ] Public matchmaking, or private rooms by code only (recommended for v1)?
 - [ ] Custom word lists per room, and which languages at launch?
 - [ ] Accounts and persistent stats, or anonymous only (recommended for v1)?
@@ -280,28 +310,35 @@ The biggest unknowns are all on the client side, and Milestone 0 exists to settl
 Use one repo with the server and client side by side. CI builds all three targets on every push.
 
 ```text
-scribble/
-  server/                 # mix phx.new server --no-ecto --no-mailer --no-dashboard
-    lib/scribble/         # room.ex, rules.ex, words.ex, application.ex
-    lib/scribble_web/     # endpoint, user_socket, room_channel, presence, page_controller
+wobble/
+  SCRIBBLE_PLAN.md
+  pen_test/               # Raven pen/tablet reference (RPenEvent, custom paint)
+  backend/                # Phoenix app `backend` (Backend / BackendWeb); Ecto on
+                          # SQLite (ecto_sqlite3), Postgres possible at deploy
+    lib/backend/          # room.ex, rules.ex, words.ex, application.ex
+    lib/backend_web/      # endpoint, channels/user_socket, channels/room_channel,
+                          # presence, page_controller
     priv/words/en.txt
     priv/static/play/     # WASM build output (copied by CI)
     test/
-  client/
-    CMakeLists.txt        # targets: scribble (native), scribble_web (emscripten)
-    core/                 # game.c, phx.c, strokes.c, chat.c + headers; no platform code
-    net/                  # net.h, net_native.c, net_web.c
-    ui/                   # main.c, canvas.c, screens.c, layouts/*.xml
-    vendor/               # cJSON, pinned Raven (git submodule)
+  client/                 # follows client/CLAUDE.md: C11 + CMake only, deps vendored
+    CMakeLists.txt        # targets: wobble (Raven UI), wobble_bot, tests
+    deps.lua / deps/      # base.h, Raven (cdeps)
+    tool/embedc/          # embeds src/gui.xml
+    src/net/              # webc, copied from chat/src/net (do not fork casually)
+    src/json.c json.h     # copied from chat/src
+    src/phx.c phx.h       # Phoenix Channels V2 framing: refs, join, heartbeat
+    src/game.c game.h     # game core: state, strokes, chat; no I/O, no Raven
+    src/transport.h       # connect / send / close; callbacks on a network thread
+    src/transport_native.c  # on webc ws_*   (transport_web.c later, M3)
+    src/main.c canvas.c gui.xml  # Raven UI
+    src/bot.c             # headless bot on the same core + transport
     tests/                # core tests with a fake transport
-  tools/
-    bot/                  # headless C or Elixir bots that join rooms and play
-  .github/workflows/      # server tests; native Win/Linux/macOS builds; web build
 ```
 
 **Deployment**
 
-- Server: a Phoenix release in a Docker image on Fly.io, Render or a small VPS. A single node is enough for v1. Room state lives in memory, so a redeploy ends running games; announce deploys or drain first.
+- Server: a Phoenix release in a Docker image on Fly.io, Render or a small VPS. A single node is enough for v1. The SQLite file lives on a persistent volume (`DATABASE_PATH`); switch to Postgres only if we need more than one node. Room state lives in memory, so a redeploy ends running games; announce deploys or drain first.
 - TLS: Caddy or the platform's proxy terminates HTTPS and WSS.
 - Web client: served by Phoenix from `priv/static/play`. Cache the `.wasm` file with a content hash in its name.
 - Native client: GitHub Releases with zips for Windows, Linux (AppImage) and macOS (signed and notarized `.app` with MoltenVK bundled). The client checks the server's `client` version on join and shows "please update" when it's too old.
@@ -311,8 +348,8 @@ scribble/
 
 | Layer | How | What it proves |
 | --- | --- | --- |
-| `Scribble.Rules` | ExUnit, pure functions | Scoring, hints, close-guess matching, drawer rotation |
-| `Scribble.Room` | ExUnit with timings shortened to milliseconds | Full game played by fake player pids, leave and rejoin, drawer leaving mid-turn |
+| `Backend.Rules` | ExUnit, pure functions | Scoring, hints, close-guess matching, drawer rotation |
+| `Backend.Room` | ExUnit with timings shortened to milliseconds | Full game played by fake player pids, leave and rejoin, drawer leaving mid-turn |
 | `RoomChannel` | `Phoenix.ChannelTest` | Role and phase checks, private pushes, the word never reaching a guesser |
 | C core | Unit tests with a fake `SendFn` and recorded server frames | Parsing, state updates, stroke chunking |
 | End to end | 8 bots in one room for 3 rounds, in CI | Protocol compatibility; no crashes or leaks |

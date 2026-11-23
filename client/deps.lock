@@ -9,12 +9,12 @@ return {
   },
   cbase = {
     branch = "master",
-    commit = "6a03d5e206341f7f0e47ac6d38ad8bb593e55042",
+    commit = "4e23ebce039a592d8cc575d3740e79e4326625d6",
     dest = "deps",
     files = {
       {
         path = "deps/base.h",
-        sha256 = "f7a176c2f07de6b21d7e74fb687fb94ad573cba1d9ddec5fb1b5d6a48194c900",
+        sha256 = "88644d775c94a9bb48a182da500677fca0b46fc1eaf859776dfd9a03be37dd50",
       },
     },
     spec_files = {

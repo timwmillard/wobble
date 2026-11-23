@@ -6,12 +6,9 @@ import Config
 # to provide built-in test partitioning in CI environment.
 # Run `mix help test` for more information.
 config :backend, Backend.Repo,
-  username: "postgres",
-  password: "postgres",
-  hostname: "localhost",
-  database: "backend_test#{System.get_env("MIX_TEST_PARTITION")}",
-  pool: Ecto.Adapters.SQL.Sandbox,
-  pool_size: System.schedulers_online() * 2
+  database: Path.expand("../backend_test#{System.get_env("MIX_TEST_PARTITION")}.db", __DIR__),
+  pool_size: 5,
+  pool: Ecto.Adapters.SQL.Sandbox
 
 # We don't run a server during test. If one is required,
 # you can enable the server option below.
@@ -39,3 +36,11 @@ config :phoenix_live_view,
 # Sort query params output of verified routes for robust url comparisons
 config :phoenix,
   sort_verified_routes_query_params: true
+
+# Game timings shortened so full games run in milliseconds.
+config :backend, :rules,
+  choose_ms: 150,
+  draw_ms: 400,
+  reveal_ms: 40,
+  rejoin_ms: 150,
+  empty_room_ms: 200

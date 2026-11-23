@@ -11,6 +11,12 @@ defmodule BackendWeb.Endpoint do
     same_site: "Lax"
   ]
 
+  # Game clients (native and web) speak Phoenix Channels V2 JSON here. Native
+  # clients send no Origin header, so check_origin only affects browsers.
+  socket "/socket", BackendWeb.UserSocket,
+    websocket: [timeout: 60_000],
+    longpoll: false
+
   socket "/live", Phoenix.LiveView.Socket,
     websocket: [connect_info: [session: @session_options]],
     longpoll: [connect_info: [session: @session_options]]

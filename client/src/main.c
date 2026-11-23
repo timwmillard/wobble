@@ -31,7 +31,10 @@ static game *g;
 static transport *conn;
 static u64 conn_gen; // events from an older connection are dropped
 static char room[32], player_name[64];
-static char saved_token[72], saved_room[32]; // to keep our seat on rejoin
+// To keep our seat on a rejoin: the last token the server gave us, and the
+// room it is for. They live in saved_arena, reset whenever they change.
+static arena saved_arena;
+static string saved_token, saved_room;
 
 static u64 now_ms(void) {
    return (u64)(Rget_time() * 1000.0);
@@ -49,13 +52,13 @@ static void show(Rid widget, bool visible) {
    Rwidget_set_visibility(widget, visible ? R_VISIBLE : R_COLLAPSED);
 }
 
-static const char *player_name_of(const char *id) {
+static string player_name_of(string id) {
    const game_state *st = game_get_state(g);
    for (int i = 0; i < st->player_count; i++) {
-      if (strcmp(st->players[i].id, id) == 0)
+      if (string_eq(st->players[i].id, id))
          return st->players[i].name;
    }
-   return "Someone";
+   return S("Someone");
 }
 
 /* Transport events, moved to the UI thread */
@@ -77,10 +80,9 @@ static void on_net_event(void *user_data) {
       u64 now = now_ms();
       switch (ev->kind) {
       case NET_OPEN:
-         game_connected(g, room, player_name,
-                        strcmp(saved_room, room) == 0 && saved_token[0]
-                            ? saved_token
-                            : NULL,
+         game_connected(g, string_view(room), string_view(player_name),
+                        string_eq(saved_room, string_view(room)) ? saved_token
+                                                                 : S(""),
                         now);
          break;
       case NET_MESSAGE:
@@ -137,9 +139,9 @@ static void refresh_players(void) {
       Rslot_set_padding(row, 6.0f, 4.0f, 6.0f, 4.0f);
 
       char text[128];
-      snprintf(text, sizeof(text), "%s%s%s", p->name,
-               strcmp(p->id, st->you) == 0 ? " (you)" : "",
-               strcmp(p->id, st->host) == 0 ? " \xc2\xb7 host" : "");
+      snprintf(text, sizeof(text), STR_FMT "%s%s", STR_ARG(p->name),
+               string_eq(p->id, st->you) ? " (you)" : "",
+               string_eq(p->id, st->host) ? " \xc2\xb7 host" : "");
       Rid name = Rwidget_add_child(row, Rlabel_create(text));
       Rslot_set_fill(name, 1.0f);
       if (p->guessed)
@@ -194,14 +196,14 @@ static void refresh_chat(void) {
 }
 
 // The hint with spaces between letters, so "____" reads as four blanks.
-static void spaced(char *out, usize cap, const char *hint) {
+static void spaced(char *out, usize cap, string hint) {
    usize o = 0;
-   for (const char *p = hint; *p && o + 3 < cap; p++) {
-      if (*p == ' ') {
+   for (usize i = 0; i < hint.len && o + 3 < cap; i++) {
+      if (hint.data[i] == ' ') {
          out[o++] = ' ';
          out[o++] = ' ';
       } else {
-         out[o++] = *p;
+         out[o++] = hint.data[i];
          out[o++] = ' ';
       }
    }
@@ -226,7 +228,8 @@ static void refresh_ranking(void) {
    for (int i = 0; i < st->player_count; i++) {
       const game_player *p = &st->players[order[i]];
       char text[128];
-      snprintf(text, sizeof(text), "%d.  %s   %d", i + 1, p->name, p->score);
+      snprintf(text, sizeof(text), "%d.  " STR_FMT "   %d", i + 1,
+               STR_ARG(p->name), p->score);
       Rid label = Rwidget_add_child(ranking, Rlabel_create(text));
       if (i == 0)
          Rlabel_set_text_size(label, 20.0f);
@@ -251,16 +254,16 @@ static void refresh_phase(void) {
       snprintf(text, sizeof(text), "Round %d of %d", st->round, st->rounds);
    set_text(round_label, text);
 
-   if (st->phase == GAME_DRAWING && st->word[0]) {
-      snprintf(text, sizeof(text), "%s%s",
-               game_is_drawer(g) ? "Draw: " : "You got it: ", st->word);
+   if (st->phase == GAME_DRAWING && st->word.len) {
+      snprintf(text, sizeof(text), "%s" STR_FMT,
+               game_is_drawer(g) ? "Draw: " : "You got it: ", STR_ARG(st->word));
       set_text(word_label, text);
    } else if (st->phase == GAME_DRAWING) {
       spaced(text, sizeof(text), st->hint);
       set_text(word_label, text);
    } else if (st->phase == GAME_CHOOSING) {
-      snprintf(text, sizeof(text), "%s is choosing a word",
-               game_is_drawer(g) ? "You are" : player_name_of(st->drawer));
+      snprintf(text, sizeof(text), STR_FMT " is choosing a word",
+               STR_ARG(player_name_of(st->drawer)));
       set_text(word_label, game_is_drawer(g) ? "Pick a word to draw" : text);
    } else {
       set_text(word_label, "");
@@ -275,9 +278,9 @@ static void refresh_phase(void) {
          snprintf(text, sizeof(text), "%d player%s here. Start when ready.",
                   connected, connected == 1 ? "" : "s");
       else
-         snprintf(text, sizeof(text), "%d player%s here. Waiting for %s.",
+         snprintf(text, sizeof(text), "%d player%s here. Waiting for " STR_FMT ".",
                   connected, connected == 1 ? "" : "s",
-                  player_name_of(st->host));
+                  STR_ARG(player_name_of(st->host)));
       set_text(lobby_text, text);
       show(start_button, game_is_host(g));
       Rwidget_set_enabled(start_button, connected >= 2);
@@ -289,16 +292,16 @@ static void refresh_phase(void) {
       if (game_is_drawer(g)) {
          set_text(choose_title, "Choose a word to draw");
       } else {
-         snprintf(text, sizeof(text), "%s is choosing a word...",
-                  player_name_of(st->drawer));
+         snprintf(text, sizeof(text), STR_FMT " is choosing a word...",
+                  STR_ARG(player_name_of(st->drawer)));
          set_text(choose_title, text);
       }
       for (int i = 0; i < 3; i++)
-         Rbutton_set_text(choice_buttons[i], st->choices[i]);
+         Rbutton_set_text(choice_buttons[i], st->choices[i].data);
    }
 
    show(reveal_panel, st->phase == GAME_REVEAL);
-   set_text(reveal_word, st->word[0] ? st->word : "(nobody drew)");
+   set_text(reveal_word, st->word.len ? st->word.data : "(nobody drew)");
 
    show(over_panel, st->phase == GAME_OVER);
    show(again_button, game_is_host(g));
@@ -314,7 +317,7 @@ static void refresh_phase(void) {
 
 static void refresh(u32 dirty) {
    if (dirty & GAME_DIRTY_ERROR)
-      set_text(connect_error, game_get_state(g)->error);
+      set_text(connect_error, game_get_state(g)->error.data);
    if (dirty & (GAME_DIRTY_PHASE | GAME_DIRTY_PLAYERS | GAME_DIRTY_CHOICES))
       refresh_phase();
    if (dirty & GAME_DIRTY_PLAYERS)
@@ -326,9 +329,11 @@ static void refresh(u32 dirty) {
 
    // Keep the seat for a reconnect.
    const game_state *st = game_get_state(g);
-   if (st->token[0]) {
-      snprintf(saved_token, sizeof(saved_token), "%s", st->token);
-      snprintf(saved_room, sizeof(saved_room), "%s", room);
+   if (st->token.len && (!string_eq(st->token, saved_token) ||
+                         !string_eq(string_view(room), saved_room))) {
+      arena_reset(&saved_arena);
+      saved_token = string_dup(&saved_arena, st->token);
+      saved_room = string_from(&saved_arena, room);
    }
 }
 
@@ -581,6 +586,7 @@ int main(int argc, char *argv[]) {
 
    transport_free(conn);
    game_free(g);
+   arena_release(&saved_arena);
    Rshutdown();
    return 0;
 }

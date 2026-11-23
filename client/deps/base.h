@@ -223,6 +223,7 @@ string vstringf(arena *a, const char *fmt, va_list args) PRINTF_LIKE(2, 0);
 string string_from(arena *a, const char *cstr); // null-terminated C string
 string string_from_bytes(arena *a, const char *bytes, usize len);
 string string_dup(arena *a, string s); // copy of an existing slice
+// Copies are NUL-terminated; an empty copy is the literal "" (no allocation).
 
 // Null-terminated C string copied into the arena (for APIs that need char*).
 const char *string_cstr(arena *a, string s);
@@ -522,6 +523,8 @@ string string_from(arena *a, const char *cstr) {
 }
 
 string string_from_bytes(arena *a, const char *bytes, usize len) {
+   if (len == 0)
+      return S(""); // no allocation; still non-NULL and NUL-terminated
    char *buf = (char *)arena_alloc(a, len + 1);
    memcpy(buf, bytes, len);
    buf[len] = '\0';
@@ -536,6 +539,8 @@ string string_dup(arena *a, string s) {
 }
 
 const char *string_cstr(arena *a, string s) {
+   if (s.len == 0)
+      return "";
    char *buf = (char *)arena_alloc(a, s.len + 1);
    memcpy(buf, s.data, s.len);
    buf[s.len] = '\0';

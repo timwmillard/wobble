@@ -66,7 +66,10 @@ static int wait_for; // players in the room before starting; 0 = bot_count
 static const char *room = "bots";
 static bool started;
 static bool verbose; // -v: print bot 1's frames
-static char shared_word[128]; // the current drawer's word: a bot-only cheat
+// The drawer's word, a bot-only cheat, and the turn it is for. Until the
+// drawer bot has run in a new turn it still holds the last turn's word.
+static char shared_word[128];
+static int shared_turn = -1;
 
 static const char *wrong_words[] = {"house", "tree", "banana", "cloud",
                                     "robot", "ship", "pizza", "cat"};
@@ -159,7 +162,8 @@ static void draw(bot *b, u64 now) {
 
 static void guess(bot *b, u64 now) {
    const game_player *me = game_me(b->g);
-   if (!me || me->guessed || now < b->next_guess_at || !shared_word[0])
+   if (!me || me->guessed || now < b->next_guess_at ||
+       shared_turn != game_get_state(b->g)->turn)
       return;
    const char *wrong = wrong_words[rand() % 8];
    if (rand() % 4 == 0) {
@@ -200,15 +204,16 @@ static bool play(bot *b, u64 now) {
       return true;
 
    if (game_is_drawer(b->g)) {
-      snprintf(shared_word, sizeof(shared_word), "%s", st->word);
+      snprintf(shared_word, sizeof(shared_word), STR_FMT, STR_ARG(st->word));
+      shared_turn = st->word.len ? st->turn : -1;
       draw(b, now);
       return true;
    }
 
    // A guesser who hasn't guessed must not know the word.
-   if (st->word[0] && !b->guessed_right) {
-      fprintf(stderr, "%s: knows the word '%s' without guessing it\n", b->name,
-              st->word);
+   if (st->word.len && !b->guessed_right) {
+      fprintf(stderr, "%s: knows the word '" STR_FMT "' without guessing it\n",
+              b->name, STR_ARG(st->word));
       return false;
    }
    guess(b, now);
@@ -218,7 +223,8 @@ static bool play(bot *b, u64 now) {
 static void print_scores(const game_state *st) {
    printf("game over after %d rounds\n", st->rounds);
    for (int i = 0; i < st->player_count; i++)
-      printf("  %-16s %5d\n", st->players[i].name, st->players[i].score);
+      printf("  %-16.*s %5d\n", STR_ARG(st->players[i].name),
+             st->players[i].score);
 }
 
 static void usage(void) {
@@ -281,7 +287,8 @@ int main(int argc, char **argv) {
          bot *b = &bots[ev->bot];
          switch (ev->kind) {
          case EV_OPEN:
-            game_connected(b->g, room, b->name, NULL, now);
+            game_connected(b->g, string_view(room), string_view(b->name), S(""),
+                           now);
             break;
          case EV_MESSAGE:
             if (verbose && ev->bot == 0)
@@ -299,8 +306,8 @@ int main(int argc, char **argv) {
       for (int i = 0; i < bot_count && result < 0; i++) {
          bot *b = &bots[i];
          const game_state *st = game_get_state(b->g);
-         if (st->phase == GAME_OFFLINE && st->error[0]) {
-            fprintf(stderr, "%s: %s\n", b->name, st->error);
+         if (st->phase == GAME_OFFLINE && st->error.len) {
+            fprintf(stderr, "%s: " STR_FMT "\n", b->name, STR_ARG(st->error));
             result = 1;
          } else if (!play(b, now)) {
             result = 1;

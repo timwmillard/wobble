@@ -27,6 +27,18 @@ struct game {
    game_state st;
    u32 dirty;
 
+   // Where game_state's strings live:
+   //   session  - you, token, and the channel below; reset on game_connected
+   //   snap[]   - everything from the server's state snapshots, plus the word
+   //              and choices for this turn. Each snapshot is built in the
+   //              spare arena, then the two swap, so the old strings stay
+   //              valid while the new ones are read out of the frame.
+   //   errors   - st.error alone; reset each time it changes
+   arena session;
+   arena snap[2];
+   int snap_cur; // the arena st's snapshot strings are in
+   arena errors;
+
    arena scratch; // one incoming frame at a time
    arena stroke_arena;
    stroke_list strokes;
@@ -35,10 +47,10 @@ struct game {
    usize chat_len;
 
    // The channel.
-   char topic[40];
-   char name[64];
+   string topic;
+   string name;
    u64 next_ref;
-   char join_ref[24]; // of the current join
+   string join_ref; // of the current join
    u64 last_heartbeat_ms;
 
    // The pen.
@@ -51,15 +63,26 @@ struct game {
 
 /* Small helpers */
 
+// The first max bytes of s at most, cut at a UTF-8 character boundary.
+static string utf8_prefix(string s, usize max) {
+   if (s.len <= max)
+      return s;
+   usize n = max;
+   while (n > 0 && ((u8)s.data[n] & 0xC0) == 0x80)
+      n--;
+   return string_slice(s, 0, (isize)n);
+}
+
 // Copies s into a fixed buffer, cut at a UTF-8 character boundary.
 static void copy_str(char *dst, usize cap, string s) {
-   usize n = s.len < cap - 1 ? s.len : cap - 1;
-   if (n < s.len) {
-      while (n > 0 && ((u8)s.data[n] & 0xC0) == 0x80)
-         n--;
-   }
-   memcpy(dst, s.data, n);
-   dst[n] = '\0';
+   s = utf8_prefix(s, cap - 1);
+   if (s.len)
+      memcpy(dst, s.data, s.len);
+   dst[s.len] = '\0';
+}
+
+static arena *snap(game *g) {
+   return &g->snap[g->snap_cur];
 }
 
 static int json_int(json *j, int fallback) {
@@ -68,10 +91,6 @@ static int json_int(json *j, int fallback) {
 
 static bool json_bool(json *j) {
    return j && j->type == JSON_BOOL && j->boolean;
-}
-
-static bool str_is(const char *a, string b) {
-   return string_eq(string_view(a), b);
 }
 
 /* Chat */
@@ -177,8 +196,7 @@ static void send_frame(game *g, string topic, string event, string payload,
       return;
    arena_temp t = arena_temp_begin(&g->scratch);
    string_builder sb = sb_init(&g->scratch);
-   phx_write(&sb,
-             with_join_ref ? string_view(g->join_ref) : (string){0},
+   phx_write(&sb, with_join_ref ? g->join_ref : (string){0},
              next_ref(g, &g->scratch), topic, event, payload);
    g->send(sb.data, sb.len, g->user_data);
    arena_temp_end(t);
@@ -190,25 +208,26 @@ static bool joined(const game *g) {
 
 static void push(game *g, string event, string payload) {
    if (joined(g))
-      send_frame(g, string_view(g->topic), event, payload, true);
+      send_frame(g, g->topic, event, payload, true);
 }
 
 static void send_join(game *g, u64 now_ms) {
    arena_temp t = arena_temp_begin(&g->scratch);
    string_builder p = sb_init(&g->scratch);
    sb_append(&p, S("{\"name\":"));
-   json_write_string(&p, string_view(g->name));
+   json_write_string(&p, g->name);
    sb_append(&p, S(",\"client\":\"" CLIENT_ID "\""));
-   if (g->st.token[0]) {
+   if (g->st.token.len) {
       sb_append(&p, S(",\"token\":"));
-      json_write_string(&p, string_view(g->st.token));
+      json_write_string(&p, g->st.token);
    }
    sb_push(&p, '}');
 
    // The join's ref doubles as the join_ref of everything on this channel.
-   snprintf(g->join_ref, sizeof(g->join_ref), "%llu",
-            (unsigned long long)(g->next_ref + 1));
-   send_frame(g, string_view(g->topic), S("phx_join"), sb_string(&p), true);
+   // A rejoin adds a few bytes to the session arena; there are few of them.
+   g->join_ref = stringf(&g->session, "%llu",
+                         (unsigned long long)(g->next_ref + 1));
+   send_frame(g, g->topic, S("phx_join"), sb_string(&p), true);
    arena_temp_end(t);
 
    g->st.phase = GAME_JOINING;
@@ -266,36 +285,47 @@ static game_phase phase_from(string s) {
    return GAME_LOBBY;
 }
 
+static void clear_choices(game *g) {
+   g->st.has_choices = false;
+   for (int i = 0; i < 3; i++)
+      g->st.choices[i] = S("");
+   g->dirty |= GAME_DIRTY_CHOICES;
+}
+
 static void apply_state(game *g, json *s, u64 now_ms) {
    game_state *st = &g->st;
    int turn = json_int(json_get(s, S("turn")), st->turn);
    game_phase phase = phase_from(json_str(json_get(s, S("phase"))));
 
+   // Build the new snapshot's strings in the spare arena. The word and
+   // choices carry over from the old one unless cleared below.
+   arena *next = &g->snap[!g->snap_cur];
+   arena_reset(next);
+   st->word = string_dup(next, st->word);
+   for (int i = 0; i < 3; i++)
+      st->choices[i] = string_dup(next, st->choices[i]);
+
    // A new turn starts with a blank canvas and no word.
    if (turn != st->turn) {
       if (phase == GAME_CHOOSING || phase == GAME_LOBBY) {
          reset_strokes(g);
-         st->word[0] = '\0';
-         st->has_choices = false;
-         g->dirty |= GAME_DIRTY_CHOICES;
+         st->word = S("");
+         clear_choices(g);
       }
    }
-   if (phase != GAME_CHOOSING && st->has_choices) {
-      st->has_choices = false;
-      g->dirty |= GAME_DIRTY_CHOICES;
-   }
+   if (phase != GAME_CHOOSING && st->has_choices)
+      clear_choices(g);
 
    st->phase = phase;
    st->turn = turn;
    st->round = json_int(json_get(s, S("round")), 0);
    st->rounds = json_int(json_get(s, S("rounds")), 0);
-   copy_str(st->host, sizeof(st->host), json_str(json_get(s, S("host"))));
-   copy_str(st->drawer, sizeof(st->drawer),
-            json_str(json_get(s, S("drawer"))));
-   copy_str(st->hint, sizeof(st->hint), json_str(json_get(s, S("hint"))));
+   st->host = string_dup(next, json_str(json_get(s, S("host"))));
+   st->drawer = string_dup(next, json_str(json_get(s, S("drawer"))));
+   st->hint = string_dup(next, json_str(json_get(s, S("hint"))));
    string word = json_str(json_get(s, S("word")));
    if (word.len)
-      copy_str(st->word, sizeof(st->word), word);
+      st->word = string_dup(next, word);
 
    int left = json_int(json_get(s, S("time_left_ms")), 0);
    st->deadline_ms = left > 0 ? now_ms + (u64)left : 0;
@@ -307,18 +337,21 @@ static void apply_state(game *g, json *s, u64 now_ms) {
          break;
       json *p = json_at(players, i);
       game_player *gp = &st->players[st->player_count++];
-      copy_str(gp->id, sizeof(gp->id), json_str(json_get(p, S("id"))));
-      copy_str(gp->name, sizeof(gp->name), json_str(json_get(p, S("name"))));
+      gp->id = string_dup(next, json_str(json_get(p, S("id"))));
+      gp->name = string_dup(next, json_str(json_get(p, S("name"))));
       gp->score = json_int(json_get(p, S("score")), 0);
       gp->guessed = json_bool(json_get(p, S("guessed")));
       gp->drawing = json_bool(json_get(p, S("drawing")));
       gp->connected = json_bool(json_get(p, S("connected")));
    }
+   g->snap_cur = !g->snap_cur;
    g->dirty |= GAME_DIRTY_PHASE | GAME_DIRTY_PLAYERS;
 }
 
+// text must not be the current error.
 static void set_error(game *g, string text) {
-   copy_str(g->st.error, sizeof(g->st.error), text);
+   arena_reset(&g->errors);
+   g->st.error = string_dup(&g->errors, text);
    g->dirty |= GAME_DIRTY_ERROR;
 }
 
@@ -331,11 +364,9 @@ static void on_join_reply(game *g, const phx_msg *m, u64 now_ms) {
       g->dirty |= GAME_DIRTY_PHASE;
       return;
    }
-   copy_str(g->st.you, sizeof(g->st.you), json_str(json_get(r, S("you"))));
-   copy_str(g->st.token, sizeof(g->st.token),
-            json_str(json_get(r, S("token"))));
-   g->st.error[0] = '\0';
-   g->dirty |= GAME_DIRTY_ERROR;
+   g->st.you = string_dup(&g->session, json_str(json_get(r, S("you"))));
+   g->st.token = string_dup(&g->session, json_str(json_get(r, S("token"))));
+   set_error(g, S(""));
 
    g->st.turn = -1; // so the state below counts as a new turn
    apply_state(g, json_get(r, S("state")), now_ms);
@@ -350,7 +381,7 @@ static void handle(game *g, const phx_msg *m, u64 now_ms) {
    string ev = m->event;
 
    if (string_eq(ev, S("phx_reply"))) {
-      if (str_is(g->join_ref, m->ref) && g->st.phase == GAME_JOINING) {
+      if (string_eq(g->join_ref, m->ref) && g->st.phase == GAME_JOINING) {
          on_join_reply(g, m, now_ms);
       } else if (!string_eq(phx_reply_status(m), S("ok"))) {
          string reason =
@@ -360,10 +391,10 @@ static void handle(game *g, const phx_msg *m, u64 now_ms) {
       }
       return;
    }
-   if (!str_is(g->topic, m->topic))
+   if (!string_eq(g->topic, m->topic))
       return;
    // Stale frames from an earlier join of this topic.
-   if (m->join_ref.len && !str_is(g->join_ref, m->join_ref))
+   if (m->join_ref.len && !string_eq(g->join_ref, m->join_ref))
       return;
 
    if (string_eq(ev, S("state"))) {
@@ -371,12 +402,11 @@ static void handle(game *g, const phx_msg *m, u64 now_ms) {
    } else if (string_eq(ev, S("choices"))) {
       json *words = json_get(p, S("words"));
       for (usize i = 0; i < 3; i++)
-         copy_str(g->st.choices[i], sizeof(g->st.choices[i]),
-                  json_str(json_at(words, i)));
+         g->st.choices[i] = string_dup(snap(g), json_str(json_at(words, i)));
       g->st.has_choices = words && words->len == 3;
       g->dirty |= GAME_DIRTY_CHOICES;
    } else if (string_eq(ev, S("word"))) {
-      copy_str(g->st.word, sizeof(g->st.word), json_str(json_get(p, S("word"))));
+      g->st.word = string_dup(snap(g), json_str(json_get(p, S("word"))));
       g->dirty |= GAME_DIRTY_PHASE;
    } else if (string_eq(ev, S("stroke"))) {
       apply_stroke(g, p);
@@ -409,6 +439,12 @@ game *game_new(game_send_fn send, void *user_data) {
    g->send = send;
    g->user_data = user_data;
    g->strokes = (stroke_list)list_init(&g->stroke_arena);
+   game_state *st = &g->st;
+   st->you = st->token = st->host = st->drawer = st->hint = st->word =
+       st->error = S("");
+   for (int i = 0; i < 3; i++)
+      st->choices[i] = S("");
+   g->topic = g->name = g->join_ref = S("");
    g->brush_color = 1;
    g->brush_size = 6;
    return g;
@@ -417,17 +453,29 @@ game *game_new(game_send_fn send, void *user_data) {
 void game_free(game *g) {
    if (!g)
       return;
+   arena_release(&g->session);
+   arena_release(&g->snap[0]);
+   arena_release(&g->snap[1]);
+   arena_release(&g->errors);
    arena_release(&g->scratch);
    arena_release(&g->stroke_arena);
    free(g);
 }
 
-void game_connected(game *g, const char *room, const char *name,
-                    const char *token, u64 now_ms) {
-   snprintf(g->topic, sizeof(g->topic), "room:%s", room);
-   copy_str(g->name, sizeof(g->name), string_view(name));
-   if (token)
-      copy_str(g->st.token, sizeof(g->st.token), string_view(token));
+void game_connected(game *g, string room, string name, string token,
+                    u64 now_ms) {
+   // The arguments may point into the session arena (our own token, say), so
+   // hold copies while it is reset.
+   arena_temp t = arena_temp_begin(&g->scratch);
+   room = string_dup(&g->scratch, room);
+   name = string_dup(&g->scratch, utf8_prefix(name, 64));
+   token = string_dup(&g->scratch, token);
+   arena_reset(&g->session);
+   g->topic = stringf(&g->session, "room:" STR_FMT, STR_ARG(room));
+   g->name = string_dup(&g->session, name);
+   g->st.token = string_dup(&g->session, token);
+   g->st.you = S("");
+   arena_temp_end(t);
    send_join(g, now_ms);
 }
 
@@ -435,7 +483,7 @@ void game_disconnected(game *g, const char *reason) {
    g->st.phase = GAME_OFFLINE;
    g->st.deadline_ms = 0;
    g->pen_down = false;
-   set_error(g, string_view(reason ? reason : "disconnected"));
+   set_error(g, string_view(reason && reason[0] ? reason : "disconnected"));
    g->dirty |= GAME_DIRTY_PHASE;
 }
 
@@ -465,9 +513,9 @@ void game_start(game *g) {
 void game_choose(game *g, int index) {
    if (index < 0 || index > 2 || !g->st.has_choices || !game_is_drawer(g))
       return;
-   char payload[32];
-   snprintf(payload, sizeof(payload), "{\"index\":%d}", index);
-   push(g, S("choose"), string_view(payload));
+   arena_temp t = arena_temp_begin(&g->scratch);
+   push(g, S("choose"), stringf(&g->scratch, "{\"index\":%d}", index));
+   arena_temp_end(t);
    g->st.has_choices = false;
    g->dirty |= GAME_DIRTY_CHOICES;
 }
@@ -478,10 +526,8 @@ void game_guess(game *g, const char *text) {
       return;
    arena_temp tmp = arena_temp_begin(&g->scratch);
    string_builder p = sb_init(&g->scratch);
-   char cut[401];
-   copy_str(cut, sizeof(cut), t);
    sb_append(&p, S("{\"text\":"));
-   json_write_string(&p, string_view(cut));
+   json_write_string(&p, utf8_prefix(t, 400));
    sb_push(&p, '}');
    push(g, S("guess"), sb_string(&p));
    arena_temp_end(tmp);
@@ -549,9 +595,9 @@ void game_undo(game *g) {
    u32 id = g->strokes.items[g->strokes.len - 1].id;
    g->strokes.len--;
    g->dirty |= GAME_DIRTY_CANVAS;
-   char payload[32];
-   snprintf(payload, sizeof(payload), "{\"id\":%u}", (unsigned)id);
-   push(g, S("undo"), string_view(payload));
+   arena_temp t = arena_temp_begin(&g->scratch);
+   push(g, S("undo"), stringf(&g->scratch, "{\"id\":%u}", (unsigned)id));
+   arena_temp_end(t);
 }
 
 void game_clear(game *g) {
@@ -577,18 +623,18 @@ const game_chat_line *game_chat(const game *g, usize *count) {
 
 const game_player *game_me(const game *g) {
    for (int i = 0; i < g->st.player_count; i++) {
-      if (strcmp(g->st.players[i].id, g->st.you) == 0)
+      if (string_eq(g->st.players[i].id, g->st.you))
          return &g->st.players[i];
    }
    return NULL;
 }
 
 bool game_is_host(const game *g) {
-   return g->st.you[0] && strcmp(g->st.host, g->st.you) == 0;
+   return g->st.you.len && string_eq(g->st.host, g->st.you);
 }
 
 bool game_is_drawer(const game *g) {
-   return g->st.you[0] && strcmp(g->st.drawer, g->st.you) == 0;
+   return g->st.you.len && string_eq(g->st.drawer, g->st.you);
 }
 
 bool game_can_draw(const game *g) {

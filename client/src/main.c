@@ -22,6 +22,7 @@
 
 #include "canvas.h"
 #include "game.h"
+#include "art_svg.h"
 #include "gui_xml.h"
 #include "transport.h"
 
@@ -586,6 +587,11 @@ int main(int argc, char *argv[]) {
    Rtheme_set_metric(R_METRIC_FONT_SIZE,
                      Rtheme_get_metric(R_METRIC_FONT_SIZE) * 1.15f);
    g = game_new(send_frame, NULL);
+
+   // gui.xml names these by path; static data, so no copy.
+   Rfile_register_memory("logo.svg", logo_svg_data, logo_svg_len, R_FALSE);
+   Rfile_register_memory("doodles.svg", doodles_svg_data, doodles_svg_len,
+                         R_FALSE);
 
    Raction_bind("ui.join", on_join, NULL);
    Raction_bind("ui.leave", on_leave, NULL);

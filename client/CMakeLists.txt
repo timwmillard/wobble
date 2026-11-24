@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.15)
 
-project(wobble C)
+project(wobble VERSION 0.1.0 LANGUAGES C)
 set(CMAKE_C_STANDARD 11)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -15,7 +15,8 @@ add_subdirectory(deps/Raven)
 # Build the embedc tool (standalone) and embed gui.xml into gui_xml.h as a
 # null-terminated C string (gui_xml_data / gui_xml_len). A browser build
 # can't run a tool it compiles to WebAssembly, so it uses the committed
-# gui_xml.h; build natively once after editing gui.xml.
+# gui_xml.h and art_svg.h; build natively once after editing gui.xml or
+# src/art.
 if(EMSCRIPTEN)
     add_custom_target(generate_gui)
 else()
@@ -27,8 +28,16 @@ else()
         NAME   gui_xml
         TEXT
     )
+    # The join screen's art, registered as in-memory files for gui.xml.
+    embedc_generate(
+        INPUTS ${CMAKE_SOURCE_DIR}/src/art/logo.svg
+               ${CMAKE_SOURCE_DIR}/src/art/doodles.svg
+        OUTPUT ${CMAKE_SOURCE_DIR}/src/art_svg.h
+        TEXT
+    )
     add_custom_target(generate_gui DEPENDS
         ${CMAKE_SOURCE_DIR}/src/gui_xml.h
+        ${CMAKE_SOURCE_DIR}/src/art_svg.h
     )
 endif()
 
@@ -90,6 +99,13 @@ add_executable(${PROJECT_NAME}
     src/main.c
     src/canvas.c
 )
+if(APPLE)
+    # Copied into wobble.app/Contents/Resources by MACOSX_PACKAGE_LOCATION.
+    set(WOBBLE_ICON ${CMAKE_SOURCE_DIR}/src/macos/Wobble.icns)
+    set_source_files_properties(${WOBBLE_ICON} PROPERTIES
+        MACOSX_PACKAGE_LOCATION Resources)
+    target_sources(${PROJECT_NAME} PRIVATE ${WOBBLE_ICON})
+endif()
 add_dependencies(${PROJECT_NAME} generate_gui)
 target_compile_options(${PROJECT_NAME} PRIVATE ${WARNINGS})
 if(NOT MSVC)
@@ -97,6 +113,19 @@ if(NOT MSVC)
     target_compile_options(${PROJECT_NAME} PRIVATE -Wno-overlength-strings)
 endif()
 target_link_libraries(${PROJECT_NAME} raven::raven wobble_core)
+
+if(APPLE)
+    # build/wobble.app: double-clickable, and the window gets a proper Dock
+    # icon, menu bar name and Retina backing.
+    set_target_properties(${PROJECT_NAME} PROPERTIES
+        MACOSX_BUNDLE TRUE
+        MACOSX_BUNDLE_INFO_PLIST "${CMAKE_SOURCE_DIR}/src/macos/Info.plist.in"
+        MACOSX_BUNDLE_BUNDLE_NAME "Wobble"
+        MACOSX_BUNDLE_GUI_IDENTIFIER "io.wobble.client"
+        MACOSX_BUNDLE_ICON_FILE "Wobble.icns"
+        MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
+        MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}")
+endif()
 
 if(EMSCRIPTEN)
     # wobble.html / .js / .wasm, served by the Phoenix app from /play

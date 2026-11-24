@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640">
+  <!-- Wobble banner, for the README and anywhere the name is shown big. The
+       wordmark uses Arial Rounded MT Bold (ships with macOS). -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#262A33"/>
+      <stop offset="1" stop-color="#161820"/>
+    </linearGradient>
+    <linearGradient id="ink" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#EF130B"/>
+      <stop offset="0.25" stop-color="#FF7100"/>
+      <stop offset="0.45" stop-color="#FFC800"/>
+      <stop offset="0.65" stop-color="#00CC00"/>
+      <stop offset="0.85" stop-color="#00B2FF"/>
+      <stop offset="1" stop-color="#7A3CE0"/>
+    </linearGradient>
+    <filter id="soft" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#000" flood-opacity="0.45"/>
+    </filter>
+  </defs>
+
+  <rect width="1280" height="640" fill="url(#bg)"/>
+
+  <!-- Doodles in the game's palette, as if left over from earlier rounds -->
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round" stroke-width="10" opacity="0.55">
+    <!-- sun -->
+    <circle cx="150" cy="130" r="38" stroke="#FFE400"/>
+    <path d="M150 64 v-18 M150 196 v18 M84 130 h-18 M216 130 h18 M104 84 l-12 -12 M196 176 l12 12 M196 84 l12 -12 M104 176 l-12 12" stroke="#FFE400"/>
+    <!-- house -->
+    <path d="M1040 520 v-90 l60 -50 l60 50 v90 z M1086 520 v-44 h28 v44" stroke="#99EBFF"/>
+    <!-- fish -->
+    <path d="M120 520 c40 -44 110 -44 150 0 c-40 44 -110 44 -150 0 z M270 520 l34 -26 v52 z" stroke="#FF7100"/>
+    <circle cx="160" cy="512" r="5" fill="#FF7100" stroke="none"/>
+    <!-- cloud -->
+    <path d="M1000 160 a34 34 0 0 1 60 -26 a44 44 0 0 1 84 10 a30 30 0 0 1 0 60 h-130 a24 24 0 0 1 -14 -44 z" stroke="#D37CAA"/>
+    <!-- star -->
+    <path d="M640 515 l12 26 l28 3 l-21 19 l6 28 l-25 -14 l-25 14 l6 -28 l-21 -19 l28 -3 z" stroke="#00CC00"/>
+    <!-- squiggle -->
+    <path d="M880 560 c20 -30 40 30 60 0 s40 30 60 0 s40 30 60 0" stroke="#A300BA"/>
+  </g>
+
+  <!-- App icon art, cropped to the card -->
+  <g transform="translate(150 152) scale(0.32)" filter="url(#soft)">
+    <rect x="100" y="100" width="824" height="824" rx="185" fill="#3B4150"/>
+    <g transform="rotate(-7 512 500)">
+      <rect x="218" y="258" width="588" height="476" rx="44" fill="#FFFFFF"/>
+      <path d="M300 372 C 318 470, 336 560, 380 616 C 404 648, 430 604, 446 560
+               C 466 500, 480 452, 512 450 C 546 450, 556 520, 574 574
+               C 590 622, 620 650, 646 606 C 684 540, 704 450, 724 360"
+            fill="none" stroke="url(#ink)" stroke-width="58" stroke-linecap="round"/>
+    </g>
+  </g>
+
+  <!-- Wordmark -->
+  <text x="490" y="338" font-family="Arial Rounded MT Bold"
+        font-size="150" fill="#FFFFFF" letter-spacing="-2">Wobble</text>
+  <path d="M494 374 c40 -16 80 16 120 0 s80 16 120 0 s80 16 120 0 s80 16 100 4"
+        fill="none" stroke="url(#ink)" stroke-width="12" stroke-linecap="round"/>
+  <text x="496" y="440" font-family="Arial Rounded MT Bold"
+        font-size="38" fill="#FFFFFF" fill-opacity="0.6" >Draw, guess, laugh.</text>
+</svg>

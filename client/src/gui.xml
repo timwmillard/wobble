@@ -3,26 +3,37 @@
 
     <!-- Connect screen -->
     <Border Name="connect_screen" Padding="0" BorderWidth="0">
+      <Overlay>
+      <!-- Doodles around the card, at their own size; logo.svg and
+           doodles.svg are src/art, registered in memory by main.c -->
+      <Image Source="doodles.svg" Stretch="None" HitTestable="false"
+             Slot.HAlign="Center" Slot.VAlign="Center"/>
       <Border Background="#262A33" CornerRadius="16" Padding="28,24" Shadow="24,0,8"
-              Slot.HAlign="Center" Slot.VAlign="Center" MinWidth="360">
+              Slot.HAlign="Center" Slot.VAlign="Center" MinWidth="380">
         <VBox Spacing="10">
+          <Image Source="logo.svg" Slot.HAlign="Center" Slot.Padding="0,0,0,2"/>
           <Label Text="Wobble" TextSize="34" Slot.HAlign="Center"/>
-          <Label Text="Draw, guess, laugh." Opacity="0.6" Slot.HAlign="Center"
+          <Label Text="Draw, guess, laugh." Opacity="0.6" TextSize="19" Slot.HAlign="Center"
                  Slot.Padding="0,0,0,10"/>
-          <Label Text="Your name" Opacity="0.7"/>
+          <Label Text="Your name" Opacity="0.7" TextSize="18"/>
           <TextInput Name="name" Placeholder="Ana" MaxLength="16" OnCommitted="ui.join"
-                     Metric.ControlHeight="38"/>
-          <Label Text="Room code" Opacity="0.7"/>
+                     Metric.ControlHeight="44" Metric.FontSize="19"/>
+          <Label Text="Room code" Opacity="0.7" TextSize="18"/>
           <TextInput Name="room" Placeholder="abcd" MaxLength="24" OnCommitted="ui.join"
-                     Metric.ControlHeight="38"/>
-          <Label Name="server_label" Text="Server" Opacity="0.7"/>
+                     Metric.ControlHeight="44" Metric.FontSize="19"/>
+          <Label Name="server_label" Text="Server" Opacity="0.7" TextSize="18"/>
           <TextInput Name="server" Text="ws://localhost:4000" OnCommitted="ui.join"
-                     Metric.ControlHeight="38"/>
-          <Button Name="join" Text="Join room" Style="Primary" OnClicked="ui.join"
-                  Metric.ControlHeight="42" Slot.Padding="0,10,0,0"/>
-          <Label Name="connect_error" Text="" Color="#FF6B6B" Wrap="true" MaxWidth="320"/>
+                     Metric.ControlHeight="44" Metric.FontSize="19"/>
+          <!-- The text is a Label so it can have a size; Rbutton_set_text keeps it -->
+          <Button Name="join" Style="Primary" OnClicked="ui.join"
+                  Metric.ControlHeight="48" Slot.Padding="0,10,0,0">
+            <Label Text="Join room" TextSize="20" Slot.HAlign="Center" Slot.VAlign="Center"/>
+          </Button>
+          <Label Name="connect_error" Text="" Color="#FF6B6B" Wrap="true" MaxWidth="340"
+                 TextSize="18"/>
         </VBox>
       </Border>
+      </Overlay>
     </Border>
 
     <!-- Game screen -->

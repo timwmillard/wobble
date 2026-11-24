@@ -10,7 +10,7 @@ build:
 	@cmake -B build
 
 run: all
-	@./build/wobble
+	@if [ -d build/wobble.app ]; then ./build/wobble.app/Contents/MacOS/wobble; else ./build/wobble; fi
 
 # The browser build (needs Emscripten); copies into ../backend/priv/static/play
 web: build-web

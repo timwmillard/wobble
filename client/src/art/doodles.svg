@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1180" height="760" viewBox="0 0 1180 760">
+  <!-- Faded doodles behind the join card, shown at this size and centred
+       (Stretch="None"): the card covers the middle, so they keep to the
+       sides. Colours from game_palette. -->
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round" stroke-width="7" stroke-opacity="0.32">
+    <!-- sun -->
+    <circle cx="190" cy="150" r="34" stroke="#FFE400"/>
+    <path d="M190 92 v-16 M190 208 v16 M132 150 h-16 M248 150 h16 M149 109 l-11 -11 M231 191 l11 11 M231 109 l11 -11 M149 191 l-11 11" stroke="#FFE400"/>
+    <!-- cloud -->
+    <path d="M900 140 a30 30 0 0 1 53 -23 a39 39 0 0 1 74 9 a27 27 0 0 1 0 53 h-115 a21 21 0 0 1 -12 -39 z" stroke="#D37CAA"/>
+    <!-- star -->
+    <path d="M250 380 l11 23 l25 3 l-19 17 l5 25 l-22 -12 l-22 12 l5 -25 l-19 -17 l25 -3 z" stroke="#00CC00"/>
+    <!-- house -->
+    <path d="M930 600 v-80 l54 -44 l54 44 v80 z M971 600 v-40 h26 v40" stroke="#99EBFF"/>
+    <!-- fish -->
+    <path d="M110 620 c36 -40 100 -40 136 0 c-36 40 -100 40 -136 0 z M246 620 l30 -24 v48 z" stroke="#FF7100"/>
+    <!-- balloon -->
+    <path d="M1010 330 c0 -40 70 -40 70 0 c0 34 -35 58 -35 58 c0 0 -35 -24 -35 -58 z M1045 388 c-8 20 10 30 0 52" stroke="#EF130B"/>
+    <!-- squiggles -->
+    <path d="M820 690 c18 -26 36 26 54 0 s36 26 54 0 s36 26 54 0" stroke="#A300BA"/>
+    <path d="M290 70 c16 -22 32 22 48 0 s32 22 48 0" stroke="#00B2FF"/>
+  </g>
+</svg>

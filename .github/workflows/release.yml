@@ -2,6 +2,10 @@
 #
 #   git tag v0.1.0 && git push origin v0.1.0
 #
+# Each platform job builds, tests and packages, and hands its file on as a
+# release-* artifact. Only when they all succeed does publish create the
+# release and upload them, so a release never has some platforms missing.
+#
 # The /download page links to releases/latest/download/<file>, so the file
 # names here must match the ones in BackendWeb.DownloadController.
 
@@ -17,91 +21,74 @@ on:
         required: true
 
 permissions:
-  contents: write
+  contents: read
+
+env:
+  TAG: ${{ inputs.tag || github.ref_name }}
+  # Raven needs the Vulkan headers to build for Windows and Linux; the
+  # library itself comes with the graphics driver and is loaded at run time.
+  VULKAN_HEADERS_REF: v1.3.290
 
 jobs:
-  # Once, before the builds upload to it in parallel.
-  release:
-    runs-on: ubuntu-latest
-    env:
-      TAG: ${{ inputs.tag || github.ref_name }}
-      GH_TOKEN: ${{ github.token }}
-      GH_REPO: ${{ github.repository }}
-    steps:
-      - run: |
-          gh release view "$TAG" >/dev/null 2>&1 \
-            || gh release create "$TAG" --verify-tag --title "Wobble $TAG" --generate-notes
-
+  # Universal (Apple Silicon + Intel), ad-hoc signed.
   macos:
-    needs: release
     runs-on: macos-latest
     defaults:
       run:
         working-directory: client
-    env:
-      TAG: ${{ inputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ env.TAG }}
       - run: make dmg
-      - name: Upload to the release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release upload "$TAG" --clobber build-release/Wobble-macOS.dmg
+      - run: ctest --test-dir build-release --output-on-failure
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-macos
+          path: client/build-release/Wobble-macOS.dmg
 
   # Cross-compiled with MinGW-w64: a single static wobble.exe.
   windows-build:
     runs-on: ubuntu-latest
-    env:
-      TAG: ${{ inputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ env.TAG }}
-      # Raven only needs the headers (vulkan-1.dll comes with the GPU driver).
       - uses: actions/checkout@v4
         with:
           repository: KhronosGroup/Vulkan-Headers
-          ref: v1.3.290
+          ref: ${{ env.VULKAN_HEADERS_REF }}
           path: _vulkan-headers
       - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends gcc-mingw-w64-x86-64
-      - run: make windows VULKAN_HEADERS=$GITHUB_WORKSPACE/_vulkan-headers/include
+      - run: make windows VULKAN_HEADERS="$GITHUB_WORKSPACE/_vulkan-headers/include"
         working-directory: client
       - uses: actions/upload-artifact@v4
         with:
-          name: windows
-          path: |
-            client/build-windows/Wobble-Windows.zip
-            client/build-windows/*_test.exe
+          name: release-windows
+          path: client/build-windows/Wobble-Windows.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-tests
+          path: client/build-windows/*_test.exe
 
-  # Runs the core tests on real Windows, then uploads the build.
-  windows:
-    needs: [release, windows-build]
+  # The cross-compiled tests, run on real Windows.
+  windows-test:
+    needs: windows-build
     runs-on: windows-latest
-    env:
-      TAG: ${{ inputs.tag || github.ref_name }}
     defaults:
       run:
         shell: bash
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: windows
+          name: windows-tests
       - run: ./game_test.exe && ./link_test.exe
-      - name: Upload to the release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-        run: gh release upload "$TAG" --clobber Wobble-Windows.zip
 
   # Built on Ubuntu 22.04 so the binary runs on its glibc (2.35) and newer.
-  linux-build:
+  linux:
     runs-on: ubuntu-latest
     container: ubuntu:22.04
     env:
-      TAG: ${{ inputs.tag || github.ref_name }}
       DEBIAN_FRONTEND: noninteractive
     steps:
       - run: apt-get update && apt-get install -y --no-install-recommends build-essential cmake git ca-certificates libx11-dev
@@ -111,31 +98,43 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: KhronosGroup/Vulkan-Headers
-          ref: v1.3.290
+          ref: ${{ env.VULKAN_HEADERS_REF }}
           path: _vulkan-headers
       - name: Build, test and package
         working-directory: client
         run: |
           cmake -B build-release -DCMAKE_BUILD_TYPE=Release \
             -DWOBBLE_SERVER=wss://wobblegame.fly.dev \
-            -DRAVEN_VULKAN_INCLUDE_DIR=$GITHUB_WORKSPACE/_vulkan-headers/include
+            -DRAVEN_VULKAN_INCLUDE_DIR="$GITHUB_WORKSPACE/_vulkan-headers/include"
           cmake --build build-release --parallel "$(nproc)"
           ctest --test-dir build-release --output-on-failure
           cd build-release && cpack
       - uses: actions/upload-artifact@v4
         with:
-          name: linux
+          name: release-linux
           path: client/build-release/Wobble-Linux.tar.gz
 
-  linux:
-    needs: [release, linux-build]
+  # Creates the release with every platform's file, or replaces the files of
+  # an existing one (a workflow_dispatch re-run).
+  publish:
+    needs: [macos, windows-build, windows-test, linux]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     env:
-      TAG: ${{ inputs.tag || github.ref_name }}
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: linux
-      - run: gh release upload "$TAG" --clobber Wobble-Linux.tar.gz
+          pattern: release-*
+          merge-multiple: true
+          path: dist
+      - run: ls -l dist
+      - run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" --clobber dist/*
+          else
+            gh release create "$TAG" --verify-tag --title "Wobble $TAG" \
+              --generate-notes dist/*
+          fi

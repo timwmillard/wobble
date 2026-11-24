@@ -35,9 +35,10 @@ Ubuntu 22.04).
 
 Pushing a `v*` tag runs `.github/workflows/release.yml`, which builds all
 three (macOS on a macOS runner, Windows cross-compiled and then tested on a
-Windows runner, Linux in an Ubuntu 22.04 container) and attaches the files to
-the GitHub release; the server's `/download` page links to the latest
-release's copies.
+Windows runner, Linux in an Ubuntu 22.04 container). Only when all of them
+pass does it create the GitHub release with the three files, so a release
+never has a platform missing; the server's `/download` page links to the
+latest release's copies.
 
 ## Room links
 

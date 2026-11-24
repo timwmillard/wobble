@@ -217,7 +217,9 @@ add_test(NAME link_test COMMAND link_test)
 
 # Packaging: `cpack` in a release build directory (make dmg / make windows).
 # On macOS that's Wobble-macOS.dmg (the app plus an Applications link to
-# drag it onto); on Windows it's Wobble-Windows.zip (wobble.exe). The file names carry no version, so the
+# drag it onto); on Windows it's Wobble-Windows.zip (wobble.exe); on Linux
+# it's Wobble-Linux.tar.gz (a wobble/ folder with the binary, a .desktop
+# file and the icon). The file names carry no version, so the
 # latest GitHub release always has the same download URLs for the /download
 # page; the version is the release's tag.
 if(APPLE)
@@ -242,6 +244,21 @@ elseif(WIN32)
     set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
     set(CPACK_PACKAGE_FILE_NAME "Wobble-Windows")
     set(CPACK_GENERATOR "ZIP")
+    set(CPACK_INCLUDE_TOPLEVEL_DIRECTORY OFF)
+    include(CPack)
+else()
+    # Runs from where it's unpacked. Only libX11 is linked; libssl, Vulkan,
+    # Wayland and libXi are opened at run time if they're there.
+    install(TARGETS ${PROJECT_NAME} RUNTIME DESTINATION wobble COMPONENT app)
+    install(FILES src/linux/wobble.desktop DESTINATION wobble COMPONENT app)
+    install(FILES src/macos/icon.svg DESTINATION wobble RENAME wobble.svg
+        COMPONENT app)
+    set(CPACK_INSTALL_CMAKE_PROJECTS "${CMAKE_BINARY_DIR};${PROJECT_NAME};app;/")
+    set(CPACK_PACKAGE_NAME "Wobble")
+    set(CPACK_PACKAGE_VENDOR "Wobble")
+    set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
+    set(CPACK_PACKAGE_FILE_NAME "Wobble-Linux")
+    set(CPACK_GENERATOR "TGZ")
     set(CPACK_INCLUDE_TOPLEVEL_DIRECTORY OFF)
     include(CPack)
 endif()

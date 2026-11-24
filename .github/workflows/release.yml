@@ -96,4 +96,46 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: gh release upload "$TAG" --clobber Wobble-Windows.zip
 
-  # linux: placeholder, see the /download page.
+  # Built on Ubuntu 22.04 so the binary runs on its glibc (2.35) and newer.
+  linux-build:
+    runs-on: ubuntu-latest
+    container: ubuntu:22.04
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
+      DEBIAN_FRONTEND: noninteractive
+    steps:
+      - run: apt-get update && apt-get install -y --no-install-recommends build-essential cmake git ca-certificates libx11-dev
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - uses: actions/checkout@v4
+        with:
+          repository: KhronosGroup/Vulkan-Headers
+          ref: v1.3.290
+          path: _vulkan-headers
+      - name: Build, test and package
+        working-directory: client
+        run: |
+          cmake -B build-release -DCMAKE_BUILD_TYPE=Release \
+            -DWOBBLE_SERVER=wss://wobblegame.fly.dev \
+            -DRAVEN_VULKAN_INCLUDE_DIR=$GITHUB_WORKSPACE/_vulkan-headers/include
+          cmake --build build-release --parallel "$(nproc)"
+          ctest --test-dir build-release --output-on-failure
+          cd build-release && cpack
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: client/build-release/Wobble-Linux.tar.gz
+
+  linux:
+    needs: [release, linux-build]
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: linux
+      - run: gh release upload "$TAG" --clobber Wobble-Linux.tar.gz

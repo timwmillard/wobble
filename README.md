@@ -90,8 +90,8 @@ See [`backend/README.md`](backend/README.md#deploying-to-flyio) for first-time
 setup.
 
 Desktop builds are published separately: push a `v*` tag and the Release
-workflow builds `Wobble-macOS.dmg` and `Wobble-Windows.zip` and
-attaches them to a GitHub release. The `/download` page always links to the
+workflow builds `Wobble-macOS.dmg`, `Wobble-Windows.zip` and
+`Wobble-Linux.tar.gz` and attaches them to a GitHub release. The `/download` page always links to the
 latest release.
 
 ```sh

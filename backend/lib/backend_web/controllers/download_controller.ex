@@ -25,7 +25,14 @@ defmodule BackendWeb.DownloadController do
         %{name: "Wobble-Windows.zip", label: "Download .zip", primary: true}
       ]
     },
-    %{id: :linux, name: "Linux", detail: "x86_64", files: []}
+    %{
+      id: :linux,
+      name: "Linux",
+      detail: "x86_64 · glibc 2.35+ (Ubuntu 22.04, Debian 12, Fedora 36 or later)",
+      files: [
+        %{name: "Wobble-Linux.tar.gz", label: "Download .tar.gz", primary: true}
+      ]
+    }
   ]
 
   def index(conn, _params) do

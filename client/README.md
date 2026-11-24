@@ -27,10 +27,17 @@ the macOS icon SVGs). Raven needs the Vulkan headers for Windows: pass
 On Windows itself, plain `cmake -B build && cmake --build build` with Visual
 C++ works too.
 
-Pushing a `v*` tag runs `.github/workflows/release.yml`, which builds both
-(macOS on a macOS runner, Windows cross-compiled and then tested on a
-Windows runner) and attaches the files to the GitHub release; the server's
-`/download` page links to the latest release's copies.
+On Linux, `cpack` in a release build directory makes `Wobble-Linux.tar.gz`:
+a `wobble/` folder with the binary, `wobble.desktop` and the icon. Only libX11
+is linked; libssl, Vulkan, Wayland and libXi are opened at run time. Build it
+on an old distro, since it runs on that glibc and newer (the release uses
+Ubuntu 22.04).
+
+Pushing a `v*` tag runs `.github/workflows/release.yml`, which builds all
+three (macOS on a macOS runner, Windows cross-compiled and then tested on a
+Windows runner, Linux in an Ubuntu 22.04 container) and attaches the files to
+the GitHub release; the server's `/download` page links to the latest
+release's copies.
 
 ## Room links
 

@@ -9,8 +9,8 @@ defmodule BackendWeb.DownloadControllerTest do
     assert html =~ "releases/latest/download/Wobble-macOS.dmg"
     refute html =~ "Wobble-macOS.zip"
     assert html =~ "releases/latest/download/Wobble-Windows.zip"
-    # Linux is still a placeholder.
-    assert html =~ "Coming soon"
+    assert html =~ "releases/latest/download/Wobble-Linux.tar.gz"
+    refute html =~ "Coming soon"
     assert html =~ "git clone https://github.com/timwmillard/wobble.git"
   end
 
@@ -34,6 +34,17 @@ defmodule BackendWeb.DownloadControllerTest do
     [_, windows_card] = String.split(html, ~s(id="platform-windows"), parts: 2)
     [windows_card | _] = String.split(windows_card, ~s(id="platform-linux"))
     assert windows_card =~ "Your system"
+  end
+
+  test "highlights Linux for a Linux browser", %{conn: conn} do
+    html =
+      conn
+      |> put_req_header("user-agent", "Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101")
+      |> get(~p"/download")
+      |> html_response(200)
+
+    [_, linux_card] = String.split(html, ~s(id="platform-linux"), parts: 2)
+    assert linux_card =~ "Your system"
   end
 
   test "highlights nothing on a phone", %{conn: conn} do

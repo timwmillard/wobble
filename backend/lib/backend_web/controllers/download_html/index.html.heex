@@ -118,6 +118,28 @@
           and Intel include. If it won't start, update your graphics driver.
         </p>
       </div>
+
+      <div
+        id="linux-first-launch"
+        class="rounded-2xl border border-white/10 bg-[#1E2128] p-6 text-sm leading-6 text-slate-300 sm:col-span-2"
+      >
+        <h3 class="flex items-center gap-2 font-semibold text-slate-100">
+          <.platform_logo id={:linux} class="size-5 text-slate-400" /> Opening it on Linux
+        </h3>
+        <p class="mt-2">
+          Unpack it and run it from the <code class="text-slate-100">wobble</code>
+          folder. It works on X11 and Wayland, and needs a Vulkan driver (Mesa's,
+          or your GPU vendor's) and OpenSSL, which desktop installs usually have.
+          To add it to your app menu, copy the files into your home folder:
+        </p>
+        <pre class="mt-3 overflow-x-auto rounded-lg bg-black/40 px-4 py-3 text-[13px] text-slate-200"><code>tar xzf Wobble-Linux.tar.gz
+./wobble/wobble
+
+# optional: add it to your app menu
+install -Dm755 wobble/wobble ~/.local/bin/wobble
+install -Dm644 wobble/wobble.desktop ~/.local/share/applications/wobble.desktop
+install -Dm644 wobble/wobble.svg ~/.local/share/icons/hicolor/scalable/apps/wobble.svg</code></pre>
+      </div>
     </section>
 
     <%!-- Build from source --%>

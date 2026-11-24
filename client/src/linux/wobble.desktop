@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Wobble
+Comment=Draw and guess with friends
+Exec=wobble %u
+Icon=wobble
+Terminal=false
+Categories=Game;

@@ -1,5 +1,5 @@
 
-.PHONY: all run test web release dmg windows
+.PHONY: all run test e2e web release dmg windows
 
 # The server a release build's bare room codes join.
 RELEASE_SERVER ?= wss://wobblegame.fly.dev
@@ -52,3 +52,8 @@ clean:
 
 test: all
 	@ctest --test-dir build --output-on-failure
+
+# End-to-end: starts ../backend on port 4100 with short timers and has bots
+# play a full game. BOTS=n, E2E_PORT=p and E2E_TIMEOUT=s override the defaults.
+e2e: all
+	@tests/e2e.sh build/wobble_bot

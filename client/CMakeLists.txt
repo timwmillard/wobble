@@ -13,18 +13,24 @@ endif()
 add_subdirectory(deps/Raven)
 
 # Build the embedc tool (standalone) and embed gui.xml into gui_xml.h as a
-# null-terminated C string (gui_xml_data / gui_xml_len).
-add_subdirectory(tool/embedc)
+# null-terminated C string (gui_xml_data / gui_xml_len). A browser build
+# can't run a tool it compiles to WebAssembly, so it uses the committed
+# gui_xml.h; build natively once after editing gui.xml.
+if(EMSCRIPTEN)
+    add_custom_target(generate_gui)
+else()
+    add_subdirectory(tool/embedc)
 
-embedc_generate(
-    INPUT  ${CMAKE_SOURCE_DIR}/src/gui.xml
-    OUTPUT ${CMAKE_SOURCE_DIR}/src/gui_xml.h
-    NAME   gui_xml
-    TEXT
-)
-add_custom_target(generate_gui DEPENDS
-    ${CMAKE_SOURCE_DIR}/src/gui_xml.h
-)
+    embedc_generate(
+        INPUT  ${CMAKE_SOURCE_DIR}/src/gui.xml
+        OUTPUT ${CMAKE_SOURCE_DIR}/src/gui_xml.h
+        NAME   gui_xml
+        TEXT
+    )
+    add_custom_target(generate_gui DEPENDS
+        ${CMAKE_SOURCE_DIR}/src/gui_xml.h
+    )
+endif()
 
 include_directories(.)
 include_directories(deps)
@@ -33,43 +39,51 @@ if(NOT MSVC)
     set(WARNINGS -Wall -Wextra -Wpedantic)
 endif()
 
-# net (webc): HTTP and WebSocket client on the operating system's TLS, copied
-# from the chat project. net_conn.c picks the backend; this only adds what
-# each one links against.
-add_library(net STATIC
-    src/net/net_sys.c
-    src/net/net_url.c
-    src/net/net_conn.c
-    src/net/ws.c
-    src/net/ws_proto.c
-    src/net/http.c
-    src/net/http_proto.c
-    src/net/sse.c
-)
-target_include_directories(net PUBLIC ${CMAKE_SOURCE_DIR}/src)
-target_compile_options(net PRIVATE ${WARNINGS})
-if(APPLE)
-    target_link_libraries(net PUBLIC "-framework Network" "-framework Security")
-elseif(WIN32)
-    target_link_libraries(net PUBLIC ws2_32 secur32 bcrypt)
-else()
-    target_link_libraries(net PUBLIC ${CMAKE_DL_LIBS} pthread)
-endif()
-
-# The game core and the native transport: everything but the UI, shared by
-# the app, the bot and the tests.
+# The game core and its transport: everything but the UI, shared by the app,
+# the bot and the tests. Natively the transport is on webc; in the browser it
+# is the browser's own WebSocket.
 add_library(wobble_core STATIC
     src/deps.c
     src/json.c
     src/phx.c
     src/game.c
-    src/transport_native.c
 )
 target_include_directories(wobble_core PUBLIC ${CMAKE_SOURCE_DIR}/src)
 target_compile_options(wobble_core PRIVATE ${WARNINGS})
-target_link_libraries(wobble_core PUBLIC net)
 if(NOT MSVC)
     target_link_libraries(wobble_core PUBLIC m)
+endif()
+
+if(EMSCRIPTEN)
+    target_sources(wobble_core PRIVATE src/transport_web.c)
+    target_link_options(wobble_core PUBLIC "-lwebsocket.js")
+else()
+    # net (webc): HTTP and WebSocket client on the operating system's TLS,
+    # copied from the chat project. net_conn.c picks the backend; this only
+    # adds what each one links against.
+    add_library(net STATIC
+        src/net/net_sys.c
+        src/net/net_url.c
+        src/net/net_conn.c
+        src/net/ws.c
+        src/net/ws_proto.c
+        src/net/http.c
+        src/net/http_proto.c
+        src/net/sse.c
+    )
+    target_include_directories(net PUBLIC ${CMAKE_SOURCE_DIR}/src)
+    target_compile_options(net PRIVATE ${WARNINGS})
+    if(APPLE)
+        target_link_libraries(net PUBLIC "-framework Network"
+            "-framework Security")
+    elseif(WIN32)
+        target_link_libraries(net PUBLIC ws2_32 secur32 bcrypt)
+    else()
+        target_link_libraries(net PUBLIC ${CMAKE_DL_LIBS} pthread)
+    endif()
+
+    target_sources(wobble_core PRIVATE src/transport_native.c)
+    target_link_libraries(wobble_core PUBLIC net)
 endif()
 
 add_executable(${PROJECT_NAME}
@@ -83,6 +97,29 @@ if(NOT MSVC)
     target_compile_options(${PROJECT_NAME} PRIVATE -Wno-overlength-strings)
 endif()
 target_link_libraries(${PROJECT_NAME} raven::raven wobble_core)
+
+if(EMSCRIPTEN)
+    # wobble.html / .js / .wasm, served by the Phoenix app from /play
+    set_target_properties(${PROJECT_NAME} PROPERTIES SUFFIX ".html")
+    target_link_options(${PROJECT_NAME} PRIVATE
+        "--shell-file=${CMAKE_SOURCE_DIR}/src/web/shell.html")
+    set_property(TARGET ${PROJECT_NAME} APPEND PROPERTY LINK_DEPENDS
+        "${CMAKE_SOURCE_DIR}/src/web/shell.html")
+
+    # Copy the page into the server's static files; "" to skip.
+    set(WOBBLE_WEB_DEPLOY_DIR "${CMAKE_SOURCE_DIR}/../backend/priv/static/play"
+        CACHE PATH "Where the web build copies wobble.html/.js/.wasm")
+    if(WOBBLE_WEB_DEPLOY_DIR)
+        add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E make_directory ${WOBBLE_WEB_DEPLOY_DIR}
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE_DIR:${PROJECT_NAME}>/wobble.html
+                $<TARGET_FILE_DIR:${PROJECT_NAME}>/wobble.js
+                $<TARGET_FILE_DIR:${PROJECT_NAME}>/wobble.wasm
+                ${WOBBLE_WEB_DEPLOY_DIR})
+    endif()
+    return()
+endif()
 
 # Headless bots that join a room and play; for load and protocol testing.
 if(NOT WIN32)

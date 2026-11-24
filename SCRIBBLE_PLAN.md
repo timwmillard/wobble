@@ -244,6 +244,8 @@ There are five milestones, each ending in something you can demo. M0 decides whe
 
 **Done when:** strokes drawn in one client appear in another through the echo channel, on both native and web. Go/no-go on Raven is recorded with the measurements.
 
+**Web spike (Nov 24):** the real app (not throwaway code), built with Emscripten 7.0.1, joined a room from `/r/spike?name=Web` in Chrome against three native bots. It received strokes and chat, sent a guess, and drew a stroke that the bots received. No pthreads or COOP/COEP needed. Download: `wobble.wasm` 1.7 MB (709 KB gzipped) + `wobble.js` 37 KB gzipped. Still open: Safari and Firefox, a real stylus, a phone, frame time with 5,000 segments.
+
 ### M1 — Protocol and server
 
 - [x] Phoenix app in `backend/` with Ecto on SQLite (`ecto_sqlite3`; `backend_dev.db` / `backend_test.db`, git-ignored); add `Rules`, `Room`, `RoomChannel` and the word list (Presence dropped, see Backend design)
@@ -289,9 +291,9 @@ The biggest unknowns are all on the client side, and Milestone 0 exists to settl
 | Risk | Impact | Mitigation / check |
 | --- | --- | --- |
 | Raven is pre-1.0 (the site says v0.1, the README says v0.2.0); its API may change | Rework of the UI layer | Pin a Raven commit. Keep all Raven calls inside `ui/`. Budget a day per Raven upgrade |
-| Our network library has no browser transport | No web client | Write `transport_web.c` on `emscripten/websocket.h` behind the same `transport_*` interface |
-| Raven's web build may need pthreads | Hosting must send COOP/COEP headers, which can break embeds | Check in M0. If it's needed, set the headers on `/play` only |
-| Pen pressure and stylus may not work in Raven's web build | Only flat-width strokes on web | Test a Raven demo with a stylus in Chrome and Safari. Fall back to fixed width |
+| Our network library has no browser transport | No web client | **Resolved (Nov 24 spike):** `transport_web.c` on `emscripten/websocket.h` behind the same `transport_*` interface; a Chrome tab played against native bots |
+| Raven's web build may need pthreads | Hosting must send COOP/COEP headers, which can break embeds | **Resolved:** not needed. Raven's browser build runs on the main thread (`Rweb_start`), so no COOP/COEP headers |
+| Pen pressure and stylus may not work in Raven's web build | Only flat-width strokes on web | Raven forwards PointerEvent `pointerType` and `pressure` to the same pen events (`emscripten_platform.c`); still to try with a real stylus in Chrome and Safari |
 | Custom canvas drawing may be slow in Raven with thousands of segments | Lag on long drawings | Use the cached finished-stroke layer. Cap strokes per turn |
 | Vulkan is unavailable on some machines (old GPUs, VMs) | Native app won't start | Point those users to the web client. Show a clear error at startup |
 | Native TLS (`wss://`) | Plain `ws://` is blocked on some networks | **Resolved:** webc already speaks `wss://` on the OS's TLS (Network.framework / SChannel / system libssl loaded at runtime). Caddy still terminates TLS in front of Phoenix |

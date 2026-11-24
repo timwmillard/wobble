@@ -14,10 +14,10 @@ defmodule BackendWeb.Router do
     plug :accepts, ["json"]
   end
 
+  # The web client: one page for the start screen and for room links.
   scope "/", BackendWeb do
-    pipe_through :browser
-
-    get "/", PageController, :home
+    get "/", PlayController, :show
+    get "/r/:code", PlayController, :show
   end
 
   # Other scopes may use custom stacks.

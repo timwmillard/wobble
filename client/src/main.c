@@ -1,10 +1,14 @@
-/* wobble — the native client: Raven UI over the game core.
+/* wobble — the client: Raven UI over the game core.
  *
  *    wobble [--server ws://host:4000] [--room abcd] [--name Ana]
  *
- * With a room and a name it joins straight away. The network runs on webc's
- * threads; every transport callback is copied and handed to the UI thread
- * with Rtask_post, and only the UI thread touches the game.
+ * In the browser web/shell.html passes the same arguments from the page:
+ * the server is the page's own host, the room is /r/<code> (or ?room=), and
+ * ?name= fills the name.
+ *
+ * With a room and a name it joins straight away. Natively the network runs
+ * on webc's threads; every transport callback is copied and handed to the UI
+ * thread with Rtask_post, and only the UI thread touches the game.
  */
 
 #include <stdio.h>
@@ -12,6 +16,9 @@
 #include <string.h>
 
 #include <Raven.h>
+#ifdef __EMSCRIPTEN__
+#include <raven/raven_emscripten.h>
+#endif
 
 #include "canvas.h"
 #include "game.h"
@@ -501,6 +508,14 @@ static Rid find(const char *name) {
    return w;
 }
 
+#ifdef __EMSCRIPTEN__
+static void web_shutdown(void) {
+   transport_free(conn);
+   game_free(g);
+   Rshutdown();
+}
+#endif
+
 int main(int argc, char *argv[]) {
    const char *arg_server = NULL, *arg_room = NULL, *arg_name = NULL;
    for (int i = 1; i + 1 < argc; i += 2) {
@@ -576,8 +591,14 @@ int main(int argc, char *argv[]) {
    if (arg_room && arg_name)
       join();
 
+#ifdef __EMSCRIPTEN__
+   // Returns at once; the browser drives frames from here on.
+   Rweb_start_ex(web_shutdown);
+   return 0;
+#else
    while (Rwait_frame(-1.0)) {
    }
+#endif
 
    transport_free(conn);
    game_free(g);

@@ -39,3 +39,6 @@ npm-debug.log
 # SQLite databases
 /*.db
 /*.db-*
+
+# The web client, built from client/ (emcmake cmake -B build-web ...)
+/priv/static/play/

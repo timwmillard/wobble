@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Wobble</title>
+<!-- Served at / and /r/<code>; the script and wasm live under /play. -->
+<base href="/play/">
+<style>
+html,body { margin:0; width:100%; height:100%; overflow:hidden; background:#161820; }
+#canvas { display:block; width:100%; height:100%; outline:none; touch-action:none; }
+#status { position:absolute; padding:1rem; color:white; font:16px system-ui; }
+</style>
+</head>
+<body>
+<div id="status" role="status">Loading Wobble…</div>
+<canvas id="canvas" aria-label="Wobble"></canvas>
+<script>
+// The app's command line, from the page: the socket server is this host,
+// the room is /r/<code> or ?room=, and ?name= fills the name.
+function wobbleArguments() {
+    var args = ["--server", (location.protocol === "https:" ? "wss://" : "ws://") + location.host];
+    var query = new URLSearchParams(location.search);
+    var match = location.pathname.match(/\/r\/([A-Za-z0-9-]+)/);
+    var room = match ? match[1] : query.get("room");
+    if (room) args.push("--room", room);
+    if (query.get("name")) args.push("--name", query.get("name"));
+    return args;
+}
+var Module = {
+    arguments: wobbleArguments(),
+    canvas: document.getElementById("canvas"),
+    onRuntimeInitialized: function() {
+        document.getElementById("status").hidden = true;
+    },
+    onAbort: function(reason) {
+        document.getElementById("status").hidden = false;
+        document.getElementById("status").textContent = "Wobble couldn't start: " + reason;
+    }
+};
+</script>
+{{{ SCRIPT }}}
+</body>
+</html>

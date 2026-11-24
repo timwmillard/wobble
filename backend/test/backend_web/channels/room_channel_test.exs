@@ -227,6 +227,27 @@ defmodule BackendWeb.RoomChannelTest do
       assert %{name: "Anna"} = Enum.find(again.join.state.players, &(&1.id == ana.id))
     end
 
+    test "after a lone host is removed, the next player in becomes host", %{code: code} do
+      ana = TestPlayer.join(code, "Ana")
+      TestPlayer.disconnect(ana)
+      # rejoin_ms is 150 and empty_room_ms 200 in test: Ana is gone, the room isn't.
+      Process.sleep(170)
+
+      bo = TestPlayer.join(code, "Bo")
+      assert bo.join.state.host == bo.id
+      cy = TestPlayer.join(code, "Cy")
+      assert cy.join.state.host == bo.id
+    end
+
+    test "a player joining while the host is away becomes host", %{code: code} do
+      ana = TestPlayer.join(code, "Ana")
+      TestPlayer.disconnect(ana)
+      Process.sleep(20)
+
+      bo = TestPlayer.join(code, "Bo")
+      assert bo.join.state.host == bo.id
+    end
+
     test "a player gone too long is removed", %{code: code} do
       ana = TestPlayer.join(code, "Ana")
       bo = TestPlayer.join(code, "Bo")

@@ -232,7 +232,7 @@ defmodule Backend.Room do
         }
 
         state = %{state | players: Map.put(state.players, id, player), order: state.order ++ [id]}
-        state = if state.host, do: state, else: %{state | host: id}
+        state = reassign_host(state)
         state = state |> cancel_stop() |> system_chat("#{name} joined")
         {:reply, {:ok, join_reply(state, id)}, after_join(state, id)}
     end
@@ -250,7 +250,7 @@ defmodule Backend.Room do
 
     player = %{player | name: name, pid: pid, mref: Process.monitor(pid), connected: true}
     state = %{state | players: Map.put(state.players, id, player)} |> cancel_stop()
-    state = if connected?(state, state.host), do: state, else: %{state | host: id}
+    state = reassign_host(state)
     state = system_chat(state, message)
     {:reply, {:ok, join_reply(state, id)}, after_join(state, id)}
   end
@@ -324,12 +324,12 @@ defmodule Backend.Room do
     |> schedule_stop_if_empty()
   end
 
+  # The host is always a connected player: the earliest-joined one still here
+  # when the old host is gone, or nil when the room is empty.
   defp reassign_host(state) do
-    if connected?(state, state.host) do
-      state
-    else
-      %{state | host: Enum.find(state.order, &connected?(state, &1)) || state.host}
-    end
+    if connected?(state, state.host),
+      do: state,
+      else: %{state | host: Enum.find(state.order, &connected?(state, &1))}
   end
 
   ## Turn flow

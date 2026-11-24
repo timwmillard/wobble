@@ -1,6 +1,11 @@
 /* wobble — the client: Raven UI over the game core.
  *
- *    wobble [--server ws://host:4000] [--room abcd] [--name Ana]
+ *    wobble [--server ws://host:4000] [--room abcd] [--name Ana] [link]
+ *
+ * The room field (and --room, or a bare argument) takes a code or a room
+ * link, https://host/r/<code>, which names its own server. A bare code joins
+ * the server field's server: --server, else $WOBBLE_SERVER, else the one the
+ * build was configured with (WOBBLE_SERVER in CMakeLists.txt).
  *
  * In the browser web/shell.html passes the same arguments from the page:
  * the server is the page's own host, the room is /r/<code> (or ?room=), and
@@ -24,11 +29,17 @@
 #include "game.h"
 #include "art_svg.h"
 #include "gui_xml.h"
+#include "link.h"
 #include "transport.h"
+
+#ifndef WOBBLE_SERVER
+#define WOBBLE_SERVER "ws://localhost:4000"
+#endif
 
 static Rid window;
 static Rid connect_screen, game_screen, name_input, room_input, server_input;
-static Rid join_button, connect_error;
+static Rid join_button, connect_error, server_box, server_toggle;
+static Rid copy_link_button, copy_invite_button, invite_label;
 static Rid round_label, word_label, timer_label;
 static Rid lobby_panel, lobby_text, start_button;
 static Rid choose_panel, choose_title, choices_row, choice_buttons[3];
@@ -38,7 +49,10 @@ static Rid tools, players_box, chat_box, chat_scroll, guess_input;
 static game *g;
 static transport *conn;
 static u64 conn_gen; // events from an older connection are dropped
-static char room[32], player_name[64];
+static char room[LINK_ROOM_MAX], player_name[64];
+// The server we joined and the room's link to share, set on join.
+static char server_url[LINK_SERVER_MAX], invite_url[LINK_SERVER_MAX + 64];
+static u64 copied_until; // the copy buttons say "Copied!" until then
 // To keep our seat on a rejoin: the last token the server gave us, and the
 // room it is for. They live in saved_arena, reset whenever they change.
 static arena saved_arena;
@@ -295,6 +309,7 @@ static void refresh_phase(void) {
                   connected, connected == 1 ? "" : "s",
                   STR_ARG(player_name_of(st->host)));
       set_text(lobby_text, text);
+      set_text(invite_label, invite_url);
       show(start_button, game_is_host(g));
       Rwidget_set_enabled(start_button, connected >= 2);
    }
@@ -331,6 +346,8 @@ static void refresh_phase(void) {
 #ifdef __EMSCRIPTEN__
 void wobble_show_room(const char *code); // web/wobble_lib.js
 void wobble_show_home(void);
+void wobble_copy_text(const char *text);
+void wobble_open(const char *url);
 static char shown_room[32]; // the room in the address bar, "" for none
 #endif
 
@@ -429,6 +446,12 @@ static void on_tick(Rid timer, void *user_data) {
    game_tick(g, now);
    refresh(game_dirty(g));
 
+   if (copied_until && now >= copied_until) {
+      copied_until = 0;
+      Rbutton_set_text(copy_link_button, "Copy link");
+      Rbutton_set_text(copy_invite_button, "Copy invite link");
+   }
+
    int left = game_time_left_ms(g, now);
    char text[32] = "";
    if (left > 0)
@@ -438,45 +461,67 @@ static void on_tick(Rid timer, void *user_data) {
 
 /* Actions */
 
-// Room codes are lower case letters, digits and dashes.
-static bool clean_room(const char *in, char *out, usize cap) {
-   usize n = 0;
-   for (const char *p = in; *p; p++) {
-      char ch = *p;
-      if (ch >= 'A' && ch <= 'Z')
-         ch = (char)(ch - 'A' + 'a');
-      if (ch == ' ')
-         continue;
-      if (!((ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '-'))
-         return false;
-      if (n + 1 >= cap)
-         return false;
-      out[n++] = ch;
-   }
-   out[n] = '\0';
-   return n > 0;
-}
-
 static void join(void) {
    const char *name = Rtext_input_get_text(name_input);
    const char *code = Rtext_input_get_text(room_input);
    const char *server = Rtext_input_get_text(server_input);
+
+   link_target target;
+   switch (link_parse(code, &target)) {
+   case LINK_OK:
+      break;
+   case LINK_BAD_ROOM:
+      set_text(connect_error, "Room codes use letters, digits and dashes.");
+      Rwidget_focus(room_input);
+      return;
+   case LINK_NO_ROOM:
+      set_text(connect_error, "That link doesn't name a room (.../r/abcd).");
+      Rwidget_focus(room_input);
+      return;
+   case LINK_BAD_ADDRESS:
+      set_text(connect_error, "That link doesn't look right.");
+      Rwidget_focus(room_input);
+      return;
+   }
+   // A link's ?name= helps only when we don't have one yet.
+   if ((!name || !string_trim(string_view(name)).len) && target.name[0]) {
+      Rtext_input_set_text(name_input, target.name);
+      name = Rtext_input_get_text(name_input);
+   }
    if (!name || !string_trim(string_view(name)).len) {
       set_text(connect_error, "Enter your name.");
       Rwidget_focus(name_input);
       return;
    }
-   if (!code || !clean_room(code, room, sizeof(room))) {
-      set_text(connect_error, "Room codes use letters, digits and dashes.");
-      Rwidget_focus(room_input);
+
+   char own_server[LINK_SERVER_MAX];
+   if (!link_server(server, own_server, sizeof(own_server))) {
+      set_text(connect_error, "That server address doesn't look right.");
+      show(server_box, true);
+      Rwidget_focus(server_input);
       return;
    }
+   const char *use = target.server[0] ? target.server : own_server;
+#ifdef __EMSCRIPTEN__
+   // A link to another host: that host serves its own page, so go there
+   // (its socket wouldn't take us from this page's origin anyway).
+   if (strcmp(use, own_server) != 0) {
+      char url[sizeof(invite_url)];
+      if (link_invite(use, target.room, url, sizeof(url)))
+         wobble_open(url);
+      return;
+   }
+#endif
+   snprintf(room, sizeof(room), "%s", target.room);
+   snprintf(server_url, sizeof(server_url), "%s", use);
+   if (!link_invite(server_url, room, invite_url, sizeof(invite_url)))
+      invite_url[0] = '\0';
    snprintf(player_name, sizeof(player_name), "%s", name);
    set_text(connect_error, "");
 
    transport_free(conn);
    conn_gen++;
-   conn = transport_connect(server ? server : "",
+   conn = transport_connect(server_url,
                             (transport_callbacks){
                                 .on_open = on_open,
                                 .on_message = on_message,
@@ -513,6 +558,46 @@ static void on_leave(Rid sender, const char *action, void *user_data) {
    refresh(game_dirty(g));
    clear_room_from_url();
    Rwidget_focus(room_input);
+}
+
+static void on_copy_link(Rid sender, const char *action, void *user_data) {
+   (void)sender;
+   (void)action;
+   (void)user_data;
+   if (!invite_url[0])
+      return;
+#ifdef __EMSCRIPTEN__
+   wobble_copy_text(invite_url); // the page's clipboard isn't the system's
+#else
+   Rclipboard_set_text(invite_url);
+#endif
+   Rbutton_set_text(copy_link_button, "Copied!");
+   Rbutton_set_text(copy_invite_button, "Copied!");
+   copied_until = now_ms() + 2000;
+}
+
+static void on_toggle_server(Rid sender, const char *action, void *user_data) {
+   (void)sender;
+   (void)action;
+   (void)user_data;
+   bool open = Rwidget_get_visibility(server_box) != R_VISIBLE;
+   show(server_box, open);
+   if (open)
+      Rwidget_focus(server_input);
+}
+
+// A friend's link on the clipboard is most likely why the app was opened;
+// put it in the room field. Only links: a copied word is not a room code.
+static void room_from_clipboard(void) {
+#ifndef __EMSCRIPTEN__
+   if (!Rclipboard_has_text())
+      return;
+   const char *text = Rclipboard_get_text();
+   link_target target;
+   if (text && strlen(text) < 300 && link_parse(text, &target) == LINK_OK &&
+       target.is_link)
+      Rtext_input_set_text(room_input, text);
+#endif
 }
 
 static void on_start(Rid sender, const char *action, void *user_data) {
@@ -574,13 +659,16 @@ static void web_shutdown(void) {
 
 int main(int argc, char *argv[]) {
    const char *arg_server = NULL, *arg_room = NULL, *arg_name = NULL;
-   for (int i = 1; i + 1 < argc; i += 2) {
-      if (strcmp(argv[i], "--server") == 0)
-         arg_server = argv[i + 1];
-      else if (strcmp(argv[i], "--room") == 0)
-         arg_room = argv[i + 1];
-      else if (strcmp(argv[i], "--name") == 0)
-         arg_name = argv[i + 1];
+   for (int i = 1; i < argc; i++) {
+      bool has_value = i + 1 < argc;
+      if (strcmp(argv[i], "--server") == 0 && has_value)
+         arg_server = argv[++i];
+      else if (strcmp(argv[i], "--room") == 0 && has_value)
+         arg_room = argv[++i];
+      else if (strcmp(argv[i], "--name") == 0 && has_value)
+         arg_name = argv[++i];
+      else if (argv[i][0] != '-') // wobble https://host/r/abcd
+         arg_room = argv[i];
    }
 
    Rinit(R_BACKEND_DEFAULT);
@@ -595,6 +683,8 @@ int main(int argc, char *argv[]) {
 
    Raction_bind("ui.join", on_join, NULL);
    Raction_bind("ui.leave", on_leave, NULL);
+   Raction_bind("ui.copy_link", on_copy_link, NULL);
+   Raction_bind("ui.toggle_server", on_toggle_server, NULL);
    Raction_bind("ui.start", on_start, NULL);
    Raction_bind("ui.choose0", on_choose, (void *)(intptr_t)0);
    Raction_bind("ui.choose1", on_choose, (void *)(intptr_t)1);
@@ -616,6 +706,11 @@ int main(int argc, char *argv[]) {
    server_input = find("server");
    join_button = find("join");
    connect_error = find("connect_error");
+   server_box = find("server_box");
+   server_toggle = find("server_toggle");
+   copy_link_button = find("copy_link");
+   copy_invite_button = find("copy_invite");
+   invite_label = find("invite_link");
    round_label = find("round");
    word_label = find("word");
    timer_label = find("timer");
@@ -643,15 +738,19 @@ int main(int argc, char *argv[]) {
 
    canvas_init(find("canvas"), find("palette"), g, now_ms);
 
-   if (arg_server)
-      Rtext_input_set_text(server_input, arg_server);
+   const char *env_server = getenv("WOBBLE_SERVER");
+   Rtext_input_set_text(server_input,
+                        arg_server               ? arg_server
+                        : env_server && *env_server ? env_server
+                                                    : WOBBLE_SERVER);
 #ifdef __EMSCRIPTEN__
    // The page's own host is the server; there is nothing to choose.
-   show(find("server_label"), false);
-   show(server_input, false);
+   show(server_toggle, false);
 #endif
    if (arg_room)
       Rtext_input_set_text(room_input, arg_room);
+   else
+      room_from_clipboard();
    if (arg_name)
       Rtext_input_set_text(name_input, arg_name);
    Rwidget_focus(name_input);

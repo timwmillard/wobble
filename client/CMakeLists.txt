@@ -56,6 +56,7 @@ add_library(wobble_core STATIC
     src/json.c
     src/phx.c
     src/game.c
+    src/link.c
 )
 target_include_directories(wobble_core PUBLIC ${CMAKE_SOURCE_DIR}/src)
 target_compile_options(wobble_core PRIVATE ${WARNINGS})
@@ -114,6 +115,15 @@ if(NOT MSVC)
 endif()
 target_link_libraries(${PROJECT_NAME} raven::raven wobble_core)
 
+# The server a bare room code joins: localhost for development; a release
+# build sets it, e.g. -DWOBBLE_SERVER=wss://wobblegame.fly.dev (make release).
+# --server and the WOBBLE_SERVER environment variable override it at run
+# time, and a pasted link always carries its own.
+set(WOBBLE_SERVER "ws://localhost:4000" CACHE STRING
+    "Default game server for bare room codes")
+target_compile_definitions(${PROJECT_NAME} PRIVATE
+    WOBBLE_SERVER="${WOBBLE_SERVER}")
+
 if(APPLE)
     # build/wobble.app: double-clickable, and the window gets a proper Dock
     # icon, menu bar name and Retina backing.
@@ -166,3 +176,8 @@ add_executable(game_test tests/game_test.c)
 target_compile_options(game_test PRIVATE ${WARNINGS})
 target_link_libraries(game_test wobble_core)
 add_test(NAME game_test COMMAND game_test)
+
+add_executable(link_test tests/link_test.c)
+target_compile_options(link_test PRIVATE ${WARNINGS})
+target_link_libraries(link_test wobble_core)
+add_test(NAME link_test COMMAND link_test)

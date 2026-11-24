@@ -1,5 +1,8 @@
 
-.PHONY: all run test web
+.PHONY: all run test web release
+
+# The server a release build's bare room codes join.
+RELEASE_SERVER ?= wss://wobblegame.fly.dev
 
 NPROC ?= $(shell nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
 
@@ -19,8 +22,13 @@ web: build-web
 build-web:
 	@emcmake cmake -B build-web -DCMAKE_BUILD_TYPE=Release
 
+# Native release build against the production server
+release:
+	@cmake -B build-release -DCMAKE_BUILD_TYPE=Release -DWOBBLE_SERVER=$(RELEASE_SERVER)
+	@cmake --build build-release --parallel $(NPROC)
+
 clean:
-	@rm -rf build build-web
+	@rm -rf build build-web build-release
 
 
 test: all

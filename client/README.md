@@ -8,8 +8,24 @@ The native build needs only a C11 compiler and CMake.
 cmake -B build && cmake --build build
 ./build/wobble                                   # connect screen
 ./build/wobble --server ws://localhost:4000 --room abcd --name Ana
+./build/wobble https://wobblegame.fly.dev/r/abcd # a room link
 ctest --test-dir build                           # core tests
+make release                                     # build-release/, prod server
 ```
+
+## Room links
+
+A room's link, `https://<host>/r/<code>`, is the one thing to share. Clicked,
+it opens the web client in that room. Pasted into the desktop app's room
+field, given as an argument or found on the clipboard at start-up, it sets
+both the server and the room. In a room, "Copy link" copies it, on desktop
+and on the web. See `src/link.h` for everything the room field accepts.
+
+A bare code joins the default server: `--server`, else `$WOBBLE_SERVER`,
+else the one the build was configured with. That's `ws://localhost:4000`
+unless you set `-DWOBBLE_SERVER=...`. `make release` sets it to
+`wss://wobblegame.fly.dev` (`make release RELEASE_SERVER=...` to change
+it). "Custom server" on the connect screen shows the field.
 
 Bots, for load tests and for playing along with people:
 

@@ -124,8 +124,6 @@ void game_leave(game *g);
 // Draw alone with no server: the canvas and tools work as for the drawer
 // but nothing is sent. Starts from a blank canvas; game_leave ends it.
 void game_practice_start(game *g);
-// The word shown to draw in practice ("" for none). Ignored outside it.
-void game_practice_word(game *g, string word);
 
 // One text frame from the server.
 void game_on_message(game *g, const char *text, usize len, u64 now_ms);

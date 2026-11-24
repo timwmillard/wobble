@@ -61,8 +61,6 @@ const char gui_xml_data[] =
 	"                 Slot.VAlign=\"Center\"/>\n"
 	"          <Label Name=\"timer\" Text=\"\" TextSize=\"22\" TextAlign=\"Right\" MinWidth=\"80\"\n"
 	"                 Slot.VAlign=\"Center\"/>\n"
-	"          <Button Name=\"new_word\" Text=\"New word\" OnClicked=\"ui.new_word\"\n"
-	"                  Metric.ControlHeight=\"34\" Slot.VAlign=\"Center\" Visibility=\"Collapsed\"/>\n"
 	"          <Button Name=\"copy_link\" Text=\"Copy link\" OnClicked=\"ui.copy_link\"\n"
 	"                  Metric.ControlHeight=\"34\" Slot.VAlign=\"Center\"/>\n"
 	"          <Button Name=\"leave\" Text=\"Leave\" OnClicked=\"ui.leave\" Metric.ControlHeight=\"34\"\n"
@@ -159,4 +157,4 @@ const char gui_xml_data[] =
 	"  </Overlay>\n"
 	"</Window>\n"
 	"";
-const unsigned int gui_xml_len = 8605;
+const unsigned int gui_xml_len = 8441;

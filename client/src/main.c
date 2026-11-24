@@ -22,7 +22,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <time.h>
 
 #include <Raven.h>
 #ifdef __EMSCRIPTEN__
@@ -35,7 +34,6 @@
 #include "gui_xml.h"
 #include "link.h"
 #include "transport.h"
-#include "words_txt.h"
 
 #ifndef WOBBLE_SERVER
 #define WOBBLE_SERVER "ws://localhost:4000"
@@ -44,7 +42,7 @@
 static Rid window;
 static Rid connect_screen, game_screen, name_input, room_input, server_input;
 static Rid join_button, practice_button, connect_error, server_box;
-static Rid server_toggle, new_word_button, side_panel, side_sep, leave_button;
+static Rid server_toggle, side_panel, side_sep, leave_button;
 static Rid copy_link_button, copy_invite_button, invite_label;
 static Rid round_label, word_label, timer_label;
 static Rid lobby_panel, lobby_text, start_button;
@@ -264,14 +262,10 @@ static void refresh_ranking(void) {
    }
 }
 
-// Practice: just the canvas, the tools and a word to draw.
+// Practice: just the canvas and the tools.
 static void refresh_practice(void) {
-   const game_state *st = game_get_state(g);
-   char text[256] = "";
-   if (st->word.len)
-      snprintf(text, sizeof(text), "Draw: " STR_FMT, STR_ARG(st->word));
    set_text(round_label, "Practice");
-   set_text(word_label, text);
+   set_text(word_label, "");
    show(lobby_panel, false);
    show(choose_panel, false);
    show(reveal_panel, false);
@@ -295,7 +289,6 @@ static void refresh_phase(void) {
                     st->phase == GAME_OFFLINE ? "Join room" : "Joining...");
    Rwidget_set_enabled(practice_button, st->phase == GAME_OFFLINE);
    // Room-only parts of the game screen.
-   show(new_word_button, practising);
    show(copy_link_button, !practising);
    show(side_panel, !practising);
    show(side_sep, !practising);
@@ -607,36 +600,12 @@ static void on_copy_link(Rid sender, const char *action, void *user_data) {
    copied_until = now_ms() + 2000;
 }
 
-// A random word from the server's list (embedded at build time), never the
-// one showing now.
-static string random_word(void) {
-   static string words[1024];
-   static usize count, last = (usize)-1;
-   if (!count) {
-      string rest = string_view(words_txt_data), line;
-      while (rest.len && count < ARRAY_SIZE(words)) {
-         string_cut(rest, S("\n"), &line, &rest);
-         line = string_trim(line);
-         if (line.len && line.data[0] != '#')
-            words[count++] = line;
-      }
-      if (!count)
-         return S("");
-   }
-   usize i = (usize)rand() % count;
-   if (count > 1 && i == last)
-      i = (i + 1 + (usize)rand() % (count - 1)) % count;
-   last = i;
-   return words[i];
-}
-
 // Practice needs no server: drop any connection still being made.
 static void practice(void) {
    transport_free(conn);
    conn = NULL;
    conn_gen++;
    game_practice_start(g);
-   game_practice_word(g, random_word());
    refresh(game_dirty(g));
    clear_room_from_url();
 }
@@ -647,15 +616,6 @@ static void on_practice(Rid sender, const char *action, void *user_data) {
    (void)user_data;
    if (game_get_state(g)->phase == GAME_OFFLINE)
       practice();
-}
-
-static void on_new_word(Rid sender, const char *action, void *user_data) {
-   (void)sender;
-   (void)action;
-   (void)user_data;
-   game_clear(g); // a new word gets a fresh page
-   game_practice_word(g, random_word());
-   refresh(game_dirty(g));
 }
 
 static void on_toggle_server(Rid sender, const char *action, void *user_data) {
@@ -760,7 +720,6 @@ int main(int argc, char *argv[]) {
    Rtheme_set_metric(R_METRIC_FONT_SIZE,
                      Rtheme_get_metric(R_METRIC_FONT_SIZE) * 1.15f);
    g = game_new(send_frame, NULL);
-   srand((unsigned)time(NULL)); // practice words
 
    // gui.xml names these by path; static data, so no copy.
    Rfile_register_memory("logo.svg", logo_svg_data, logo_svg_len, R_FALSE);
@@ -770,7 +729,6 @@ int main(int argc, char *argv[]) {
    Raction_bind("ui.join", on_join, NULL);
    Raction_bind("ui.leave", on_leave, NULL);
    Raction_bind("ui.practice", on_practice, NULL);
-   Raction_bind("ui.new_word", on_new_word, NULL);
    Raction_bind("ui.copy_link", on_copy_link, NULL);
    Raction_bind("ui.toggle_server", on_toggle_server, NULL);
    Raction_bind("ui.start", on_start, NULL);
@@ -794,7 +752,6 @@ int main(int argc, char *argv[]) {
    server_input = find("server");
    join_button = find("join");
    practice_button = find("practice");
-   new_word_button = find("new_word");
    side_panel = find("side");
    side_sep = find("side_sep");
    leave_button = find("leave");

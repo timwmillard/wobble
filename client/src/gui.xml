@@ -60,8 +60,6 @@
                  Slot.VAlign="Center"/>
           <Label Name="timer" Text="" TextSize="22" TextAlign="Right" MinWidth="80"
                  Slot.VAlign="Center"/>
-          <Button Name="new_word" Text="New word" OnClicked="ui.new_word"
-                  Metric.ControlHeight="34" Slot.VAlign="Center" Visibility="Collapsed"/>
           <Button Name="copy_link" Text="Copy link" OnClicked="ui.copy_link"
                   Metric.ControlHeight="34" Slot.VAlign="Center"/>
           <Button Name="leave" Text="Leave" OnClicked="ui.leave" Metric.ControlHeight="34"

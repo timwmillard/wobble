@@ -491,7 +491,6 @@ void game_leave(game *g) {
    g->st.phase = GAME_OFFLINE;
    g->st.deadline_ms = 0;
    g->st.player_count = 0;
-   g->st.word = S("");
    g->chat_len = 0;
    reset_strokes(g);
    set_error(g, S(""));
@@ -501,13 +500,6 @@ void game_leave(game *g) {
 void game_practice_start(game *g) {
    game_leave(g);
    g->st.phase = GAME_PRACTICE;
-}
-
-void game_practice_word(game *g, string word) {
-   if (g->st.phase != GAME_PRACTICE)
-      return;
-   g->st.word = string_dup(snap(g), utf8_prefix(word, 64));
-   g->dirty |= GAME_DIRTY_PHASE;
 }
 
 void game_on_message(game *g, const char *text, usize len, u64 now_ms) {

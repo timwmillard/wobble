@@ -428,8 +428,6 @@ static void test_practice(void) {
    game_practice_start(g);
    CHECK(game_get_state(g)->phase == GAME_PRACTICE);
    CHECK(game_can_draw(g));
-   game_practice_word(g, S("banana"));
-   CHECK(string_eq(game_get_state(g)->word, S("banana")));
 
    game_set_brush(g, 4, 12);
    game_pen_down(g, 10, 10, -1, 0);
@@ -466,19 +464,16 @@ static void test_practice(void) {
    game_strokes(g, &n);
    CHECK(n == 0);
 
-   // Leaving ends practice and forgets the drawing and the word.
+   // Leaving ends practice and forgets the drawing.
    game_pen_down(g, 5, 5, -1, 500);
    game_pen_up(g, 510);
    game_dirty(g);
    game_leave(g);
    CHECK(game_get_state(g)->phase == GAME_OFFLINE);
    CHECK(!game_can_draw(g));
-   CHECK(game_get_state(g)->word.len == 0);
    game_strokes(g, &n);
    CHECK(n == 0);
    CHECK(game_dirty(g) & GAME_DIRTY_CANVAS);
-   game_practice_word(g, S("cherry"));
-   CHECK(game_get_state(g)->word.len == 0);
    CHECK(sent_count == 0);
    game_free(g);
 }

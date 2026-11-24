@@ -1,0 +1,70 @@
+# Run this to set a token:
+# fly tokens create deploy -a wobblegame
+# gh secret set FLY_API_TOKEN
+#
+# The app also needs SECRET_KEY_BASE set on Fly (one-time):
+# fly secrets set SECRET_KEY_BASE=$(cd backend && mix phx.gen.secret) -a wobblegame
+#
+# Stateless deploy: rooms live in memory, there is no database or volume,
+# so there are no migrations and nothing to mount.
+
+name: Deploy to Fly.io
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+concurrency:
+  group: fly-deploy
+  cancel-in-progress: false
+
+jobs:
+  backend-test:
+    runs-on: ubuntu-latest
+    env:
+      MIX_ENV: test
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      # Same versions as the Dockerfile builder image.
+      - uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.20.5"
+          otp-version: "29.1.2"
+      - uses: actions/cache@v4
+        with:
+          path: |
+            backend/deps
+            backend/_build
+          key: mix-${{ runner.os }}-${{ hashFiles('backend/mix.lock') }}
+          restore-keys: mix-${{ runner.os }}-
+      - run: mix deps.get
+      - run: mix format --check-formatted
+      - run: mix compile --warnings-as-errors
+      - run: mix test
+
+  client-build:
+    runs-on: ubuntu-latest
+    # Same image as the Dockerfile's client stage. Fly's remote builder
+    # repeats this build before it deploys, so this is a fast-fail check.
+    container: emscripten/emsdk:7.0.1
+    defaults:
+      run:
+        working-directory: client
+    steps:
+      - uses: actions/checkout@v4
+      - run: emcmake cmake -B build-web -DCMAKE_BUILD_TYPE=Release -DWOBBLE_WEB_DEPLOY_DIR=/tmp/play
+      - run: cmake --build build-web --parallel "$(nproc)"
+
+  deploy:
+    needs: [backend-test, client-build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - run: flyctl deploy --remote-only
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}

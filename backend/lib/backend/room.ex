@@ -88,7 +88,7 @@ defmodule Backend.Room do
   def handle_call({:join, pid, name, token}, _from, state) do
     case find_by_token(state, token) do
       nil -> join_new(state, pid, name)
-      id -> rejoin(state, id, pid)
+      id -> rejoin(state, id, pid, name)
     end
   end
 
@@ -238,15 +238,20 @@ defmodule Backend.Room do
     end
   end
 
-  defp rejoin(state, id, pid) do
+  defp rejoin(state, id, pid, name) do
     player = state.players[id]
     if player.mref, do: Process.demonitor(player.mref, [:flush])
     if player.pid && player.pid != pid, do: send(player.pid, :replaced)
 
-    player = %{player | pid: pid, mref: Process.monitor(pid), connected: true}
+    message =
+      if name == player.name,
+        do: "#{name} is back",
+        else: "#{player.name} is back as #{name}"
+
+    player = %{player | name: name, pid: pid, mref: Process.monitor(pid), connected: true}
     state = %{state | players: Map.put(state.players, id, player)} |> cancel_stop()
     state = if connected?(state, state.host), do: state, else: %{state | host: id}
-    state = system_chat(state, "#{player.name} is back")
+    state = system_chat(state, message)
     {:reply, {:ok, join_reply(state, id)}, after_join(state, id)}
   end
 

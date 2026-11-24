@@ -217,6 +217,16 @@ defmodule BackendWeb.RoomChannelTest do
       assert length(again.join.state.players) == 2
     end
 
+    test "a player who comes back under a new name is renamed", %{code: code} do
+      ana = TestPlayer.join(code, "Ana")
+      _bo = TestPlayer.join(code, "Bo")
+      TestPlayer.disconnect(ana)
+
+      again = TestPlayer.join(code, "Anna", %{"token" => ana.token})
+      assert again.id == ana.id
+      assert %{name: "Anna"} = Enum.find(again.join.state.players, &(&1.id == ana.id))
+    end
+
     test "a player gone too long is removed", %{code: code} do
       ana = TestPlayer.join(code, "Ana")
       bo = TestPlayer.join(code, "Bo")

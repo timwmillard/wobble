@@ -1,4 +1,4 @@
-<Window Title="Wobble" Width="1180" Height="760" MinWidth="860" MinHeight="560">
+<Window Title="Wobble" Width="1180" Height="760" MinWidth="320" MinHeight="420">
   <Overlay>
 
     <!-- Connect screen -->
@@ -8,12 +8,12 @@
            doodles.svg are src/art, registered in memory by main.c -->
       <Image Source="doodles.svg" Stretch="None" HitTestable="false"
              Slot.HAlign="Center" Slot.VAlign="Center"/>
-      <Border Background="#262A33" CornerRadius="16" Padding="28,24" Shadow="24,0,8"
+      <Border Name="connect_card" Background="#262A33" CornerRadius="16" Padding="28,24" Shadow="24,0,8"
               Slot.HAlign="Center" Slot.VAlign="Center" MinWidth="380">
         <VBox Spacing="10">
-          <Image Source="logo.svg" Slot.HAlign="Center" Slot.Padding="0,0,0,2"/>
+          <Image Name="logo" Source="logo.svg" Slot.HAlign="Center" Slot.Padding="0,0,0,2"/>
           <Label Text="Wobble" TextSize="34" Slot.HAlign="Center"/>
-          <Label Text="Draw, guess, laugh." Opacity="0.6" TextSize="19" Slot.HAlign="Center"
+          <Label Name="tagline" Text="Draw, guess, laugh." Opacity="0.6" TextSize="19" Slot.HAlign="Center"
                  Slot.Padding="0,0,0,10"/>
           <Label Text="Your name" Opacity="0.7" TextSize="18"/>
           <TextInput Name="name" Placeholder="Ana" MaxLength="16" OnCommitted="ui.join"
@@ -49,7 +49,7 @@
     <VBox Name="game_screen" Visibility="Collapsed" Spacing="0">
 
       <!-- Top bar: round, the word or its hint, the countdown -->
-      <Border Padding="16,10" BorderWidth="0" Background="#1E2128">
+      <Border Name="top_bar" Padding="16,10" BorderWidth="0" Background="#1E2128">
         <HBox Spacing="12">
           <Label Name="round" Text="Lobby" Opacity="0.75" MinWidth="140" Slot.VAlign="Center"/>
           <Label Name="word" Text="" TextSize="24" TextAlign="Center" Slot.Fill="1"
@@ -63,11 +63,13 @@
         </HBox>
       </Border>
 
-      <HBox Slot.Fill="1" Spacing="0">
+      <!-- Wide: stage | divider | sidebar. Narrow (a phone held upright):
+           the three stacked; main.c's apply_layout moves them -->
+      <Grid Name="body" Columns="1,0,0" Rows="1" Slot.Fill="1">
 
         <!-- The canvas, its overlays and the drawer's tools -->
-        <VBox Slot.Fill="1" Spacing="8" Slot.Padding="12">
-          <Overlay Slot.Fill="1">
+        <VBox Name="stage" Spacing="8" Slot.Column="0" Slot.Row="0" Slot.Padding="12">
+          <Overlay Name="board" Slot.Fill="1">
             <Custom Name="canvas"/>
 
             <Border Name="lobby_panel" Background="#262A33EE" CornerRadius="14" Padding="24,20"
@@ -75,7 +77,7 @@
               <VBox Spacing="12">
                 <Label Text="Waiting room" TextSize="22" Slot.HAlign="Center"/>
                 <Label Name="lobby_text" Text="" Opacity="0.75" Slot.HAlign="Center"/>
-                <Label Text="Invite friends with this link:" Opacity="0.6" TextSize="15"
+                <Label Name="invite_title" Text="Invite friends with this link:" Opacity="0.6" TextSize="15"
                        Slot.HAlign="Center" Slot.Padding="0,6,0,0"/>
                 <Label Name="invite_link" Text="" TextSize="17" Slot.HAlign="Center"/>
                 <Button Name="copy_invite" Text="Copy invite link" OnClicked="ui.copy_link"
@@ -89,20 +91,21 @@
                     Slot.HAlign="Center" Slot.VAlign="Center" Visibility="Collapsed">
               <VBox Spacing="14">
                 <Label Name="choose_title" Text="Choose a word" TextSize="22" Slot.HAlign="Center"/>
-                <HBox Name="choices" Spacing="10" Slot.HAlign="Center">
-                  <Button Name="choice0" Style="Primary" OnClicked="ui.choose0"
+                <!-- A row; narrow, a column (main.c apply_layout) -->
+                <Grid Name="choices" Spacing="10" Slot.HAlign="Center">
+                  <Button Name="choice0" Style="Primary" Slot.Column="0" OnClicked="ui.choose0"
                           Metric.ControlHeight="52" Metric.PaddingX="22">
                     <Label TextSize="24" Slot.HAlign="Center" Slot.VAlign="Center"/>
                   </Button>
-                  <Button Name="choice1" Style="Primary" OnClicked="ui.choose1"
+                  <Button Name="choice1" Style="Primary" Slot.Column="1" OnClicked="ui.choose1"
                           Metric.ControlHeight="52" Metric.PaddingX="22">
                     <Label TextSize="24" Slot.HAlign="Center" Slot.VAlign="Center"/>
                   </Button>
-                  <Button Name="choice2" Style="Primary" OnClicked="ui.choose2"
+                  <Button Name="choice2" Style="Primary" Slot.Column="2" OnClicked="ui.choose2"
                           Metric.ControlHeight="52" Metric.PaddingX="22">
                     <Label TextSize="24" Slot.HAlign="Center" Slot.VAlign="Center"/>
                   </Button>
-                </HBox>
+                </Grid>
               </VBox>
             </Border>
 
@@ -127,26 +130,33 @@
 
           <HBox Name="tools" Spacing="8" Visibility="Collapsed">
             <Custom Name="palette" Slot.Fill="1"/>
-            <Button Text="Undo" OnClicked="ui.undo" Metric.ControlHeight="40"/>
-            <Button Text="Clear" OnClicked="ui.clear" Metric.ControlHeight="40"/>
+            <Button Name="undo" Text="Undo" OnClicked="ui.undo" Metric.ControlHeight="40"/>
+            <Button Name="clear" Text="Clear" OnClicked="ui.clear" Metric.ControlHeight="40"/>
           </HBox>
         </VBox>
 
-        <Separator Orientation="Vertical"/>
+        <Separator Name="divider" Orientation="Vertical" Slot.Column="1" Slot.Row="0"/>
 
         <!-- Players and chat -->
-        <VBox Width="300" Spacing="0">
-          <Label Text="Players" Opacity="0.6" Slot.Padding="14,12,14,6"/>
+        <VBox Name="sidebar" Width="300" Spacing="0" Slot.Column="2" Slot.Row="0">
+          <Label Name="players_title" Text="Players" Opacity="0.6" Slot.Padding="14,12,14,6"/>
           <VBox Name="players" Spacing="2" Slot.Padding="8,0,8,8"/>
+          <!-- Narrow: the players on one line that scrolls sideways -->
+          <ScrollBox Name="players_strip_scroll" Orientation="Horizontal" Visibility="Collapsed">
+            <HBox Name="players_strip" Spacing="14" Slot.Padding="12,8"/>
+          </ScrollBox>
           <Separator/>
-          <ScrollBox Name="chat_scroll" Slot.Fill="1">
+          <!-- Height: what it asks for, not what it gets (it fills the rest).
+               The Grid around it gives a row at least what its content
+               asks, so asking for every line would leave nothing to scroll -->
+          <ScrollBox Name="chat_scroll" Height="60" Slot.Fill="1">
             <VBox Name="chat" Spacing="4" Slot.Padding="12"/>
           </ScrollBox>
           <Separator/>
           <TextInput Name="guess" Placeholder="Type your guess..." MaxLength="100"
                      OnCommitted="ui.guess" Slot.Padding="10" Metric.ControlHeight="40"/>
         </VBox>
-      </HBox>
+      </Grid>
     </VBox>
 
   </Overlay>

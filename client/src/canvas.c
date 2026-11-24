@@ -14,7 +14,9 @@ static struct {
    game *g;
    u64 (*now_ms)(void);
    int color, size_index;
-   bool mouse_down;
+   bool mouse_down, pen_down;
+   bool narrow;
+   float narrow_width; // the palette's, when narrow
 } c = {.color = 1, .size_index = 1};
 
 static void rgb(u32 hex, float *r, float *g, float *b) {
@@ -135,6 +137,12 @@ static int on_pen(Rid widget, const RPenEvent *e, void *user_data) {
    u64 now = c.now_ms();
    switch (e->phase) {
    case R_PEN_DOWN:
+      // A palm that landed first would otherwise go on drawing beside it.
+      if (c.mouse_down) {
+         c.mouse_down = false;
+         game_pen_up(c.g, now);
+      }
+      c.pen_down = true;
       game_set_brush(c.g, e->eraser ? 0 : c.color, brush_sizes[c.size_index]);
       game_pen_down(c.g, x, y, e->pressure, now);
       break;
@@ -143,6 +151,7 @@ static int on_pen(Rid widget, const RPenEvent *e, void *user_data) {
       break;
    case R_PEN_UP:
    case R_PEN_LEAVE:
+      c.pen_down = false;
       game_pen_up(c.g, now);
       game_set_brush(c.g, c.color, brush_sizes[c.size_index]);
       break;
@@ -153,7 +162,8 @@ static int on_pen(Rid widget, const RPenEvent *e, void *user_data) {
    return R_TRUE;
 }
 
-/* The mouse (and touch emulating it): flat width. */
+/* The mouse, and a finger (R_TOUCH_MODE_MOUSE): flat width. Fingers are
+   ignored while the pen draws, so a resting palm leaves no marks. */
 static int on_mouse(Rid widget, const REvent *e, void *user_data) {
    (void)user_data;
    float x, y;
@@ -161,7 +171,7 @@ static int on_mouse(Rid widget, const REvent *e, void *user_data) {
    u64 now = c.now_ms();
    switch (e->type) {
    case R_EVENT_MOUSE_DOWN:
-      if (e->button != R_MOUSE_LEFT)
+      if (e->button != R_MOUSE_LEFT || c.pen_down)
          return R_FALSE;
       c.mouse_down = true;
       game_pen_down(c.g, x, y, -1.0f, now);
@@ -185,64 +195,135 @@ static int on_mouse(Rid widget, const REvent *e, void *user_data) {
    return R_TRUE;
 }
 
-/* The palette: 16 colours, then the brush sizes. */
+/* The palette: 16 colours, then the brush sizes, on one line. Narrow, it
+   wraps to the width it is given and ends with undo and clear, the Undo and
+   Clear buttons being hidden there. */
 
-static float size_x(int i) {
-   return GAME_PALETTE_SIZE * (SWATCH + SWATCH_GAP) + 18.0f +
-          (float)i * (SWATCH + 10.0f);
+#define CELL (SWATCH + SWATCH_GAP)
+#define ROW (SWATCH + 10.0f)
+#define ITEM_UNDO (GAME_PALETTE_SIZE + BRUSH_COUNT)
+#define ITEM_CLEAR (ITEM_UNDO + 1)
+
+static int palette_items(void) {
+   return c.narrow ? ITEM_CLEAR + 1 : ITEM_UNDO;
+}
+
+static int palette_columns(void) {
+   int n = (int)((c.narrow_width + SWATCH_GAP) / CELL);
+   return n < 1 ? 1 : n;
+}
+
+// Top-left of item i, relative to the palette's top-left; the selection ring
+// takes 3 more on each side, which the wide layout's centring leaves room for.
+static void item_pos(int i, float *x, float *y) {
+   if (c.narrow) {
+      int cols = palette_columns();
+      *x = 3.0f + (float)(i % cols) * CELL;
+      *y = 3.0f + (float)(i / cols) * ROW;
+   } else if (i < GAME_PALETTE_SIZE) {
+      *x = (float)i * CELL;
+      *y = (PALETTE_HEIGHT - SWATCH) * 0.5f;
+   } else {
+      *x = GAME_PALETTE_SIZE * CELL + 18.0f +
+           (float)(i - GAME_PALETTE_SIZE) * (SWATCH + 10.0f);
+      *y = (PALETTE_HEIGHT - SWATCH) * 0.5f;
+   }
+}
+
+static void ring(RPainter *painter, float x, float y) {
+   Rdraw_rect(painter, x - 3, y - 3, SWATCH + 6, SWATCH + 6, 9.0f, 0.35f, 0.6f,
+              1.0f, 1.0f);
 }
 
 static void paint_palette(Rid widget, RPainter *painter, float width,
                           float height, void *user_data) {
    (void)widget;
    (void)width;
+   (void)height;
    (void)user_data;
-   float y = (height - SWATCH) * 0.5f;
+   float x, y, r, g, b;
    for (int i = 0; i < GAME_PALETTE_SIZE; i++) {
-      float x = (float)i * (SWATCH + SWATCH_GAP), r, g, b;
+      item_pos(i, &x, &y);
       rgb(game_palette[i], &r, &g, &b);
       if (i == c.color)
-         Rdraw_rect(painter, x - 3, y - 3, SWATCH + 6, SWATCH + 6, 9.0f, 0.35f,
-                    0.6f, 1.0f, 1.0f);
+         ring(painter, x, y);
       Rdraw_rect(painter, x, y, SWATCH, SWATCH, 7.0f, r, g, b, 1.0f);
       if (i == 0) // the eraser: white with a cross
          Rdraw_line(painter, x + 8, y + 8, x + SWATCH - 8, y + SWATCH - 8,
                     2.0f, 0.6f, 0.6f, 0.6f, 1.0f);
    }
-   float r, g, b;
    rgb(game_palette[c.color == 0 ? 1 : c.color], &r, &g, &b);
    for (int i = 0; i < BRUSH_COUNT; i++) {
-      float x = size_x(i);
+      item_pos(GAME_PALETTE_SIZE + i, &x, &y);
       if (i == c.size_index)
-         Rdraw_rect(painter, x - 3, y - 3, SWATCH + 6, SWATCH + 6, 9.0f, 0.35f,
-                    0.6f, 1.0f, 1.0f);
+         ring(painter, x, y);
       Rdraw_rect(painter, x, y, SWATCH, SWATCH, 7.0f, 0.2f, 0.22f, 0.27f,
                  1.0f);
       float radius = 2.0f + (float)i * 3.2f;
       Rdraw_circle(painter, x + SWATCH * 0.5f, y + SWATCH * 0.5f, radius, r, g,
                    b, 1.0f);
    }
+   if (!c.narrow)
+      return;
+   // Undo: an arrow curling back to the left.
+   item_pos(ITEM_UNDO, &x, &y);
+   Rdraw_rect(painter, x, y, SWATCH, SWATCH, 7.0f, 0.2f, 0.22f, 0.27f, 1.0f);
+   Rdraw_curve(painter, x + 10, y + 11, x + 22, y + 9, x + 24, y + 22, x + 14,
+               y + 21, 2.5f, 0.85f, 0.85f, 0.9f, 1.0f);
+   Rdraw_triangle(painter, x + 5, y + 11, x + 12, y + 6, x + 12, y + 16, 0.85f,
+                  0.85f, 0.9f, 1.0f);
+   // Clear: a cross.
+   item_pos(ITEM_CLEAR, &x, &y);
+   Rdraw_rect(painter, x, y, SWATCH, SWATCH, 7.0f, 0.2f, 0.22f, 0.27f, 1.0f);
+   Rdraw_line(painter, x + 9, y + 9, x + SWATCH - 9, y + SWATCH - 9, 2.5f,
+              1.0f, 0.45f, 0.45f, 1.0f);
+   Rdraw_line(painter, x + SWATCH - 9, y + 9, x + 9, y + SWATCH - 9, 2.5f,
+              1.0f, 0.45f, 0.45f, 1.0f);
 }
 
 static void measure_palette(Rid widget, float *width, float *height,
                             void *user_data) {
    (void)widget;
    (void)user_data;
-   *width = size_x(BRUSH_COUNT);
-   *height = PALETTE_HEIGHT;
+   if (c.narrow) {
+      int cols = palette_columns();
+      int rows = (palette_items() + cols - 1) / cols;
+      *width = c.narrow_width;
+      *height = 6.0f + (float)rows * ROW - 10.0f;
+   } else {
+      float x, y;
+      item_pos(ITEM_UNDO - 1, &x, &y);
+      *width = x + SWATCH + 10.0f;
+      *height = PALETTE_HEIGHT;
+   }
 }
 
-static void pick(float x) {
-   for (int i = 0; i < GAME_PALETTE_SIZE; i++) {
-      float sx = (float)i * (SWATCH + SWATCH_GAP);
-      if (x >= sx && x < sx + SWATCH + SWATCH_GAP)
+static void pick(float px, float py) {
+   for (int i = 0; i < palette_items(); i++) {
+      float x, y;
+      item_pos(i, &x, &y);
+      if (px < x - SWATCH_GAP * 0.5f || px >= x + SWATCH + SWATCH_GAP * 0.5f ||
+          (c.narrow && (py < y - 5.0f || py >= y + SWATCH + 5.0f)))
+         continue;
+      if (i < GAME_PALETTE_SIZE)
          c.color = i;
-   }
-   for (int i = 0; i < BRUSH_COUNT; i++) {
-      if (x >= size_x(i) && x < size_x(i) + SWATCH + 10.0f)
-         c.size_index = i;
+      else if (i < ITEM_UNDO)
+         c.size_index = i - GAME_PALETTE_SIZE;
+      else if (i == ITEM_UNDO)
+         game_undo(c.g);
+      else
+         game_clear(c.g);
    }
    game_set_brush(c.g, c.color, brush_sizes[c.size_index]);
+   Rwidget_invalidate(c.palette);
+   Rwidget_invalidate(c.canvas);
+}
+
+void canvas_set_narrow(bool narrow, float width) {
+   if (c.narrow == narrow && c.narrow_width == width)
+      return;
+   c.narrow = narrow;
+   c.narrow_width = width;
    Rwidget_invalidate(c.palette);
 }
 
@@ -251,7 +332,7 @@ static int on_palette_mouse(Rid widget, const REvent *e, void *user_data) {
    (void)user_data;
    if (e->type != R_EVENT_MOUSE_DOWN || e->button != R_MOUSE_LEFT)
       return R_FALSE;
-   pick(e->local_x);
+   pick(e->local_x, e->local_y);
    return R_TRUE;
 }
 
@@ -260,7 +341,7 @@ static int on_palette_pen(Rid widget, const RPenEvent *e, void *user_data) {
    (void)user_data;
    if (e->phase != R_PEN_DOWN)
       return R_FALSE;
-   pick(e->local_x);
+   pick(e->local_x, e->local_y);
    return R_TRUE;
 }
 
@@ -275,7 +356,7 @@ void canvas_init(Rid canvas, Rid palette, game *g, u64 (*now_ms)(void)) {
    Rwidget_set_event_callback(canvas, on_mouse, NULL);
    Rwidget_set_pen_callback(canvas, on_pen, NULL);
    Rwidget_set_pen_mouse(canvas, R_FALSE);
-   Rwidget_set_touch_mode(canvas, R_TOUCH_MODE_NONE);
+   Rwidget_set_touch_mode(canvas, R_TOUCH_MODE_MOUSE);
    Rwidget_set_touch_gestures(canvas, R_FALSE);
    Rwidget_set_cursor(canvas, R_CURSOR_CROSSHAIR);
 

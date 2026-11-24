@@ -45,6 +45,9 @@ static Rid lobby_panel, lobby_text, start_button;
 static Rid choose_panel, choose_title, choices_row, choice_buttons[3];
 static Rid reveal_panel, reveal_word, over_panel, ranking, again_button;
 static Rid tools, players_box, chat_box, chat_scroll, guess_input;
+static Rid connect_card, top_bar, body, stage, board, divider, sidebar;
+static Rid players_title, players_strip_scroll, players_strip, invite_title;
+static Rid undo_button, clear_button, logo, tagline;
 
 static game *g;
 static transport *conn;
@@ -57,6 +60,12 @@ static u64 copied_until; // the copy buttons say "Copied!" until then
 // room it is for. They live in saved_arena, reset whenever they change.
 static arena saved_arena;
 static string saved_token, saved_room;
+
+// Below this width (a phone held upright) the chat goes under the canvas.
+#define NARROW_WIDTH 700
+static int window_w, window_h;
+static float keyboard_h; // the on-screen keyboard's, 0 when there is none
+static bool narrow;
 
 static u64 now_ms(void) {
    return (u64)(Rget_time() * 1000.0);
@@ -154,6 +163,7 @@ static void send_frame(const char *frame, usize len, void *user_data) {
 static void refresh_players(void) {
    const game_state *st = game_get_state(g);
    Rwidget_clear_children(players_box);
+   Rwidget_clear_children(players_strip);
    for (int i = 0; i < st->player_count; i++) {
       const game_player *p = &st->players[i];
       Rid row = Rwidget_add_child(players_box, Rwidget_create(R_WIDGET_HBOX));
@@ -180,6 +190,17 @@ static void refresh_players(void) {
       Rlabel_set_font(score, Rfont_get_monospace());
       if (!p->connected)
          Rwidget_set_opacity(row, 0.4f);
+
+      // The same on one line, for the narrow layout.
+      snprintf(text, sizeof(text), STR_FMT "%s  %d", STR_ARG(p->name),
+               string_eq(p->id, st->you) ? " (you)" : "", p->score);
+      Rid chip = Rwidget_add_child(players_strip, Rlabel_create(text));
+      if (p->drawing)
+         Rlabel_set_color(chip, 0.45f, 0.65f, 1.0f, 1.0f);
+      else if (p->guessed)
+         Rlabel_set_color(chip, 0.35f, 0.85f, 0.45f, 1.0f);
+      if (!p->connected)
+         Rwidget_set_opacity(chip, 0.4f);
    }
 }
 
@@ -258,6 +279,90 @@ static void refresh_ranking(void) {
    }
 }
 
+/* Wide: the chat beside the canvas. Narrow: the canvas on top, as large as
+   its proportions and the room left for the chat allow, then the drawer's
+   tools, the players on one line and the chat. Called on a resize and when
+   the tools come or go. */
+static void apply_layout(void) {
+   narrow = window_w > 0 && window_w < NARROW_WIDTH;
+   float pad = narrow ? 8.0f : 12.0f;
+   // Raven lays the content out above the on-screen keyboard.
+   float avail_h = (float)window_h - keyboard_h;
+
+   Rslot_set_padding(stage, pad, pad, pad, pad);
+   Rslot_set_grid(divider, narrow ? 0 : 1, narrow ? 1 : 0);
+   Rseparator_set_orientation(divider, narrow ? R_HORIZONTAL : R_VERTICAL);
+   Rslot_set_grid(sidebar, narrow ? 0 : 2, narrow ? 2 : 0);
+   Rwidget_set_size(sidebar, narrow ? -1.0f : 300.0f, -1.0f);
+   for (int i = 0; i < 3; i++) {
+      Rgrid_set_column_fill(body, i, i == 0 ? 1.0f : 0.0f);
+      Rgrid_set_row_fill(body, i, i == (narrow ? 2 : 0) ? 1.0f : 0.0f);
+   }
+
+   if (narrow) {
+      // Under the canvas: the top bar, the tools, the players, a few lines
+      // of chat and the guess field. The canvas letterboxes the drawing, so
+      // it can be shorter than its proportions, e.g. with the keyboard up.
+      float under = 52.0f + 2.0f * pad + (game_can_draw(g) ? 80.0f : 0.0f) +
+                    40.0f + 72.0f + 60.0f;
+      float h = ((float)window_w - 2.0f * pad) * GAME_CANVAS_H / GAME_CANVAS_W;
+      if (h > avail_h - under)
+         h = avail_h - under;
+      Rwidget_set_size(board, -1.0f, h < 140.0f ? 140.0f : h);
+   } else {
+      Rwidget_set_size(board, -1.0f, -1.0f);
+   }
+   // Narrow, the palette wraps (two lines on a phone) and has undo and clear.
+   canvas_set_narrow(narrow, (float)window_w - 2.0f * pad);
+   show(undo_button, !narrow);
+   show(clear_button, !narrow);
+
+   Rborder_set_padding(top_bar, narrow ? 10.0f : 16.0f, narrow ? 6.0f : 10.0f,
+                       narrow ? 10.0f : 16.0f, narrow ? 6.0f : 10.0f);
+   Rwidget_set_min_size(round_label, narrow ? -1.0f : 140.0f, -1.0f);
+   Rwidget_set_min_size(timer_label, narrow ? -1.0f : 80.0f, -1.0f);
+   Rlabel_set_text_size(word_label, narrow ? 18.0f : 24.0f);
+   // The waiting room's "Copy invite link" is enough on a phone.
+   show(copy_link_button, !narrow);
+   show(players_title, !narrow);
+   show(players_box, !narrow);
+   show(players_strip_scroll, narrow);
+   show(invite_title, !narrow);
+   show(invite_label, !narrow);
+
+   // Keep the cards inside a small screen.
+   float room = (float)window_w - 2.0f * pad;
+   Rwidget_set_min_size(connect_card, narrow ? -1.0f : 380.0f, -1.0f);
+   // The join card is about 600 tall; with a keyboard up (an iPad on its
+   // side leaves about 370) the fields and the button come first.
+   bool short_card = avail_h < 640.0f;
+   show(logo, !short_card);
+   show(tagline, !short_card);
+   float card_pad = short_card ? 14.0f : 24.0f;
+   Rborder_set_padding(connect_card, 28.0f, card_pad, 28.0f, card_pad);
+   Rwidget_set_max_size(connect_card, narrow ? room : -1.0f, -1.0f);
+   for (int i = 0; i < 3; i++)
+      Rslot_set_grid(choice_buttons[i], narrow ? 0 : i, narrow ? i : 0);
+}
+
+static void refresh_phase(void);
+
+static void on_keyboard(Rid w, int visible, float height, void *user_data) {
+   (void)w;
+   (void)user_data;
+   keyboard_h = visible ? height : 0.0f;
+   apply_layout();
+}
+
+static void on_resize(Rid w, int width, int height, void *user_data) {
+   (void)w;
+   (void)user_data;
+   window_w = width;
+   window_h = height;
+   apply_layout();
+   refresh_phase(); // texts that are shorter when narrow
+}
+
 static void refresh_phase(void) {
    const game_state *st = game_get_state(g);
    bool in_room = st->phase >= GAME_LOBBY;
@@ -265,7 +370,8 @@ static void refresh_phase(void) {
    show(connect_screen, !in_room);
    show(game_screen, in_room);
    // The focused field just went away with the connect screen; type to chat.
-   if (in_room && !was_in_room)
+   // Not on a phone, where the keyboard would come up over the canvas.
+   if (in_room && !was_in_room && !narrow)
       Rwidget_focus(guess_input);
    was_in_room = in_room;
    Rwidget_set_enabled(join_button, st->phase == GAME_OFFLINE);
@@ -278,7 +384,8 @@ static void refresh_phase(void) {
    if (st->phase == GAME_LOBBY)
       snprintf(text, sizeof(text), "Room %s", room);
    else
-      snprintf(text, sizeof(text), "Round %d of %d", st->round, st->rounds);
+      snprintf(text, sizeof(text), narrow ? "Round %d/%d" : "Round %d of %d",
+               st->round, st->rounds);
    set_text(round_label, text);
 
    if (st->phase == GAME_DRAWING && st->word.len) {
@@ -337,6 +444,7 @@ static void refresh_phase(void) {
       refresh_ranking();
 
    show(tools, game_can_draw(g));
+   apply_layout(); // the canvas makes room for the tools
    Rtext_input_set_placeholder(guess_input, game_is_drawer(g) &&
                                                     st->phase == GAME_DRAWING
                                                 ? "Chat (no spoilers!)"
@@ -735,8 +843,28 @@ int main(int argc, char *argv[]) {
    chat_box = find("chat");
    chat_scroll = find("chat_scroll");
    guess_input = find("guess");
+   connect_card = find("connect_card");
+   top_bar = find("top_bar");
+   body = find("body");
+   stage = find("stage");
+   board = find("board");
+   divider = find("divider");
+   sidebar = find("sidebar");
+   players_title = find("players_title");
+   players_strip_scroll = find("players_strip_scroll");
+   players_strip = find("players_strip");
+   invite_title = find("invite_title");
+   undo_button = find("undo");
+   clear_button = find("clear");
+   logo = find("logo");
+   tagline = find("tagline");
 
    canvas_init(find("canvas"), find("palette"), g, now_ms);
+
+   Rwindow_get_size(window, &window_w, &window_h);
+   Rwindow_set_resize_callback(window, on_resize, NULL);
+   Rwindow_set_keyboard_callback(window, on_keyboard, NULL);
+   apply_layout();
 
    const char *env_server = getenv("WOBBLE_SERVER");
    Rtext_input_set_text(server_input,

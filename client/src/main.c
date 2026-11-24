@@ -581,6 +581,11 @@ int main(int argc, char *argv[]) {
 
    if (arg_server)
       Rtext_input_set_text(server_input, arg_server);
+#ifdef __EMSCRIPTEN__
+   // The page's own host is the server; there is nothing to choose.
+   show(find("server_label"), false);
+   show(server_input, false);
+#endif
    if (arg_room)
       Rtext_input_set_text(room_input, arg_room);
    if (arg_name)

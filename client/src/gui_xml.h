@@ -16,7 +16,7 @@ const char gui_xml_data[] =
 	"          <Label Text=\"Room code\" Opacity=\"0.7\"/>\n"
 	"          <TextInput Name=\"room\" Placeholder=\"abcd\" MaxLength=\"24\" OnCommitted=\"ui.join\"\n"
 	"                     Metric.ControlHeight=\"38\"/>\n"
-	"          <Label Text=\"Server\" Opacity=\"0.7\"/>\n"
+	"          <Label Name=\"server_label\" Text=\"Server\" Opacity=\"0.7\"/>\n"
 	"          <TextInput Name=\"server\" Text=\"ws://localhost:4000\" OnCommitted=\"ui.join\"\n"
 	"                     Metric.ControlHeight=\"38\"/>\n"
 	"          <Button Name=\"join\" Text=\"Join room\" Style=\"Primary\" OnClicked=\"ui.join\"\n"
@@ -118,4 +118,4 @@ const char gui_xml_data[] =
 	"  </Overlay>\n"
 	"</Window>\n"
 	"";
-const unsigned int gui_xml_len = 5852;
+const unsigned int gui_xml_len = 5872;

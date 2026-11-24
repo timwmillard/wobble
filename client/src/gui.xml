@@ -15,7 +15,7 @@
           <Label Text="Room code" Opacity="0.7"/>
           <TextInput Name="room" Placeholder="abcd" MaxLength="24" OnCommitted="ui.join"
                      Metric.ControlHeight="38"/>
-          <Label Text="Server" Opacity="0.7"/>
+          <Label Name="server_label" Text="Server" Opacity="0.7"/>
           <TextInput Name="server" Text="ws://localhost:4000" OnCommitted="ui.join"
                      Metric.ControlHeight="38"/>
           <Button Name="join" Text="Join room" Style="Primary" OnClicked="ui.join"

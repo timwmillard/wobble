@@ -43,6 +43,46 @@ static float stroke_width(const game_stroke *s, game_point p, float scale) {
    return w < 1.0f ? 1.0f : w;
 }
 
+/* The segment from point k - 1 to point k as a Catmull-Rom curve through the
+ * points around it (the ends of a stroke repeat their point), cut into short
+ * lines whose width moves smoothly from one point's pressure to the next: no
+ * corners at the samples, no steps in the width. */
+static void paint_segment(RPainter *painter, const game_stroke *s, usize k,
+                          fit f, float r, float g, float b) {
+   game_point p0 = s->pts.items[k >= 2 ? k - 2 : k - 1];
+   game_point p1 = s->pts.items[k - 1];
+   game_point p2 = s->pts.items[k];
+   game_point p3 = s->pts.items[k + 1 < s->pts.len ? k + 1 : k];
+   float x0 = (float)p0.x, y0 = (float)p0.y, x1 = (float)p1.x,
+         y1 = (float)p1.y, x2 = (float)p2.x, y2 = (float)p2.y,
+         x3 = (float)p3.x, y3 = (float)p3.y;
+   float w1 = stroke_width(s, p1, f.scale), w2 = stroke_width(s, p2, f.scale);
+   float dx = (x2 - x1) * f.scale, dy = (y2 - y1) * f.scale;
+   int steps = (int)(sqrtf(dx * dx + dy * dy) / 2.0f);
+   if (steps < 1)
+      steps = 1;
+   if (steps > 32)
+      steps = 32;
+
+   float x = f.x + x1 * f.scale, y = f.y + y1 * f.scale, w = w1;
+   for (int i = 1; i <= steps; i++) {
+      float t = (float)i / (float)steps, t2 = t * t, t3 = t2 * t;
+      float cx = 0.5f * (2.0f * x1 + (x2 - x0) * t +
+                         (2.0f * x0 - 5.0f * x1 + 4.0f * x2 - x3) * t2 +
+                         (3.0f * x1 - x0 - 3.0f * x2 + x3) * t3);
+      float cy = 0.5f * (2.0f * y1 + (y2 - y0) * t +
+                         (2.0f * y0 - 5.0f * y1 + 4.0f * y2 - y3) * t2 +
+                         (3.0f * y1 - y0 - 3.0f * y2 + y3) * t3);
+      float nx = f.x + cx * f.scale, ny = f.y + cy * f.scale;
+      float nw = w1 + (w2 - w1) * t;
+      // Round caps join the pieces; the width is the mean of the ends.
+      Rdraw_line(painter, x, y, nx, ny, 0.5f * (w + nw), r, g, b, 1.0f);
+      x = nx;
+      y = ny;
+      w = nw;
+   }
+}
+
 static void paint_canvas(Rid widget, RPainter *painter, float width,
                          float height, void *user_data) {
    (void)widget;
@@ -61,19 +101,14 @@ static void paint_canvas(Rid widget, RPainter *painter, float width,
       float r, g, b;
       rgb(game_palette[s->color], &r, &g, &b);
       for (usize k = 0; k < s->pts.len; k++) {
-         game_point p = s->pts.items[k];
-         float x = f.x + (float)p.x * f.scale, y = f.y + (float)p.y * f.scale;
-         float w = stroke_width(s, p, f.scale);
          if (k == 0) {
-            Rdraw_circle(painter, x, y, w * 0.5f, r, g, b, 1.0f);
+            game_point p = s->pts.items[0];
+            Rdraw_circle(painter, f.x + (float)p.x * f.scale,
+                         f.y + (float)p.y * f.scale,
+                         stroke_width(s, p, f.scale) * 0.5f, r, g, b, 1.0f);
             continue;
          }
-         game_point q = s->pts.items[k - 1];
-         float qw = stroke_width(s, q, f.scale);
-         // Round caps join the segments; the width is the mean of the ends.
-         Rdraw_line(painter, f.x + (float)q.x * f.scale,
-                    f.y + (float)q.y * f.scale, x, y, 0.5f * (w + qw), r, g,
-                    b, 1.0f);
+         paint_segment(painter, s, k, f, r, g, b);
       }
    }
    Rdraw_pop_clip_rect(painter);

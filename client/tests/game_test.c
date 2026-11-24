@@ -80,7 +80,7 @@ static void feed(game *g, const char *frame, u64 now) {
 static game *joined_game(void) {
    game *g = game_new(fake_send, NULL);
    clear_sent();
-   game_connected(g, "abcd", "Ana", NULL, 1000);
+   game_connected(g, S("abcd"), S("Ana"), S(""), 1000);
    feed(g,
         "[\"1\",\"1\",\"room:abcd\",\"phx_reply\",{\"status\":\"ok\","
         "\"response\":{\"you\":\"me\",\"token\":\"tok\",\"state\":" LOBBY_STATE
@@ -105,7 +105,7 @@ static void state_frame(game *g, const char *phase, int turn,
 static void test_join(void) {
    game *g = game_new(fake_send, NULL);
    clear_sent();
-   game_connected(g, "abcd", "Ana \"A\"", NULL, 1000);
+   game_connected(g, S("abcd"), S("Ana \"A\""), S(""), 1000);
    phx_msg m = last_sent();
    CHECK(string_eq(m.join_ref, S("1")));
    CHECK(string_eq(m.ref, S("1")));
@@ -122,10 +122,10 @@ static void test_join(void) {
         1000);
    const game_state *st = game_get_state(g);
    CHECK(st->phase == GAME_LOBBY);
-   CHECK(strcmp(st->you, "me") == 0);
-   CHECK(strcmp(st->token, "tok") == 0);
+   CHECK(string_eq(st->you, S("me")));
+   CHECK(string_eq(st->token, S("tok")));
    CHECK(st->player_count == 2);
-   CHECK(strcmp(st->players[1].name, "Bo") == 0);
+   CHECK(string_eq(st->players[1].name, S("Bo")));
    CHECK(game_is_host(g));
    usize n;
    const game_stroke *s = game_strokes(g, &n);
@@ -144,13 +144,13 @@ static void test_join(void) {
 
 static void test_join_error(void) {
    game *g = game_new(fake_send, NULL);
-   game_connected(g, "abcd", "Ana", NULL, 0);
+   game_connected(g, S("abcd"), S("Ana"), S(""), 0);
    feed(g,
         "[\"1\",\"1\",\"room:abcd\",\"phx_reply\",{\"status\":\"error\","
         "\"response\":{\"reason\":\"room_full\"}}]",
         0);
    CHECK(game_get_state(g)->phase == GAME_OFFLINE);
-   CHECK(strcmp(game_get_state(g)->error, "room_full") == 0);
+   CHECK(string_eq(game_get_state(g)->error, S("room_full")));
    game_free(g);
 }
 
@@ -167,7 +167,7 @@ static void test_drawer_turn(void) {
         "\"sun\"],\"time_left_ms\":9000}]",
         2000);
    CHECK(game_get_state(g)->has_choices);
-   CHECK(strcmp(game_get_state(g)->choices[1], "dog") == 0);
+   CHECK(string_eq(game_get_state(g)->choices[1], S("dog")));
    game_choose(g, 1);
    phx_msg m = last_sent();
    CHECK(string_eq(m.event, S("choose")));
@@ -181,7 +181,7 @@ static void test_drawer_turn(void) {
 
    state_frame(g, "drawing", 1, "me", "", 2100);
    feed(g, "[\"1\",null,\"room:abcd\",\"word\",{\"word\":\"dog\"}]", 2100);
-   CHECK(strcmp(game_get_state(g)->word, "dog") == 0);
+   CHECK(string_eq(game_get_state(g)->word, S("dog")));
    CHECK(game_can_draw(g));
 
    clear_sent();
@@ -242,7 +242,7 @@ static void test_drawer_turn(void) {
    state_frame(g, "choosing", 2, "bo", "", 6000);
    game_strokes(g, &n);
    CHECK(n == 0);
-   CHECK(game_get_state(g)->word[0] == '\0');
+   CHECK(game_get_state(g)->word.len == 0);
    CHECK(!game_can_draw(g));
    game_free(g);
 }
@@ -251,7 +251,7 @@ static void test_guesser(void) {
    game *g = joined_game();
    state_frame(g, "drawing", 1, "bo", ",\"hint\":\"_ _ g\"", 2000);
    CHECK(!game_can_draw(g));
-   CHECK(strcmp(game_get_state(g)->hint, "_ _ g") == 0);
+   CHECK(string_eq(game_get_state(g)->hint, S("_ _ g")));
 
    feed(g,
         "[\"1\",null,\"room:abcd\",\"stroke\",{\"id\":1,\"pts\":[0,0,5,5],"
@@ -306,7 +306,7 @@ static void test_guesser(void) {
    CHECK(chat[2].kind == GAME_CHAT_CORRECT && chat[2].from[0] == '\0');
 
    feed(g, "[\"1\",null,\"room:abcd\",\"word\",{\"word\":\"dog\"}]", 2000);
-   CHECK(strcmp(game_get_state(g)->word, "dog") == 0);
+   CHECK(string_eq(game_get_state(g)->word, S("dog")));
 
    // Frames from an older join, or another topic, are ignored.
    feed(g, "[\"9\",null,\"room:abcd\",\"clear\",{}]", 2000);
@@ -358,6 +358,48 @@ static void test_rejoin_after_channel_error(void) {
    game_free(g);
 }
 
+// game_state's strings live in arenas the game swaps and resets; check that
+// each survives as long as game.h says.
+static void test_string_lifetimes(void) {
+   game *g = joined_game();
+   state_frame(g, "choosing", 1, "me", "", 1000);
+   feed(g,
+        "[\"1\",null,\"room:abcd\",\"choices\",{\"words\":[\"cat\",\"dog\","
+        "\"emu\"],\"time_left_ms\":9000}]",
+        1000);
+   // Snapshots in the same phase keep the choices across arena swaps.
+   for (int i = 0; i < 5; i++)
+      state_frame(g, "choosing", 1, "me", "", 1100 + (u64)i);
+   CHECK(game_get_state(g)->has_choices);
+   CHECK(string_eq(game_get_state(g)->choices[2], S("emu")));
+
+   // The word arrives once, then outlives many snapshots in its turn...
+   state_frame(g, "drawing", 1, "me", "", 2000);
+   feed(g, "[\"1\",null,\"room:abcd\",\"word\",{\"word\":\"dog\"}]", 2000);
+   for (int i = 0; i < 5; i++)
+      state_frame(g, "drawing", 1, "me", "", 2100 + (u64)i);
+   CHECK(string_eq(game_get_state(g)->word, S("dog")));
+   CHECK(string_eq(game_get_state(g)->drawer, S("me")));
+   CHECK(game_is_drawer(g));
+   // ...and goes when the next turn starts.
+   state_frame(g, "choosing", 2, "bo", "", 3000);
+   CHECK(game_get_state(g)->word.len == 0);
+   CHECK(game_get_state(g)->word.data != NULL);
+   CHECK(!game_get_state(g)->has_choices);
+
+   // Reconnecting with the game's own token, which lives in the arena that
+   // game_connected resets.
+   game_disconnected(g, "closed");
+   CHECK(string_eq(game_get_state(g)->error, S("closed")));
+   clear_sent();
+   game_connected(g, S("abcd"), S("Ana"), game_get_state(g)->token, 4000);
+   phx_msg m = last_sent();
+   CHECK(string_eq(m.event, S("phx_join")));
+   CHECK(string_eq(json_str(json_get(m.payload, S("token"))), S("tok")));
+   CHECK(string_eq(game_get_state(g)->token, S("tok")));
+   game_free(g);
+}
+
 int main(void) {
    test_join();
    test_join_error();
@@ -366,6 +408,7 @@ int main(void) {
    test_chat_overflow();
    test_heartbeat();
    test_rejoin_after_channel_error();
+   test_string_lifetimes();
    clear_sent();
    arena_release(&test_arena);
    if (failures) {

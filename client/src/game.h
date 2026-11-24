@@ -46,8 +46,8 @@ enum {
 };
 
 typedef struct {
-   char id[16];
-   char name[64]; // up to 16 characters of UTF-8
+   string id;
+   string name; // up to 16 characters
    int score;
    bool guessed, drawing, connected;
 } game_player;
@@ -81,21 +81,26 @@ typedef struct {
    game_point_list pts;
 } game_stroke;
 
+/* The strings in game_state are owned by the game and stay valid only until
+ * the next call into it that can change the state (game_on_message,
+ * game_connected, game_disconnected); copy any you want to keep. Each is
+ * NUL-terminated, so .data can go where a C string is needed, and never has
+ * a NULL .data: unset fields are "". */
 typedef struct {
    game_phase phase;
    int turn, round, rounds;
    game_player players[GAME_MAX_PLAYERS];
    int player_count;
-   char you[16];   // our player id
-   char token[72]; // presented on rejoin to keep our seat
-   char host[16];
-   char drawer[16];
-   char hint[128]; // "_ _ _ e" style, for guessers
-   char word[128]; // the word, once we may know it
-   char choices[3][64];
+   string you;   // our player id
+   string token; // presented on rejoin to keep our seat
+   string host;
+   string drawer;
+   string hint; // "_ _ _ e" style, for guessers
+   string word; // the word, once we may know it
+   string choices[3];
    bool has_choices;
    u64 deadline_ms; // local clock; 0 = no timer
-   char error[128];
+   string error;
 } game_state;
 
 typedef void (*game_send_fn)(const char *frame, usize len, void *user_data);
@@ -106,9 +111,9 @@ game *game_new(game_send_fn send, void *user_data);
 void game_free(game *g);
 
 // The transport is open: join room (its code, e.g. "abcd") as name. token
-// may be NULL; pass the one from a previous session to keep the seat.
-void game_connected(game *g, const char *room, const char *name,
-                    const char *token, u64 now_ms);
+// may be empty; pass the one from a previous session to keep the seat.
+void game_connected(game *g, string room, string name, string token,
+                    u64 now_ms);
 // The transport closed.
 void game_disconnected(game *g, const char *reason);
 

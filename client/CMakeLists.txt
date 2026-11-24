@@ -27,10 +27,11 @@ add_subdirectory(${CMAKE_BINARY_DIR}/patched/Raven
 
 # Build the embedc tool (standalone) and embed gui.xml into gui_xml.h as a
 # null-terminated C string (gui_xml_data / gui_xml_len). A browser build
-# can't run a tool it compiles to WebAssembly, so it uses the committed
-# gui_xml.h and art_svg.h; build natively once after editing gui.xml or
-# src/art.
-if(EMSCRIPTEN)
+# can't run a tool it compiles to WebAssembly, nor a cross build (e.g. MinGW
+# for Windows) one it compiles for another system, so those use the
+# committed gui_xml.h and art_svg.h; build natively once after editing
+# gui.xml or src/art.
+if(EMSCRIPTEN OR CMAKE_CROSSCOMPILING)
     add_custom_target(generate_gui)
 else()
     add_subdirectory(tool/embedc)
@@ -56,6 +57,12 @@ endif()
 
 include_directories(.)
 include_directories(deps)
+
+# MinGW: self-contained .exe files, without libwinpthread-1.dll and the
+# libgcc DLLs beside them.
+if(MINGW)
+    add_link_options(-static)
+endif()
 
 if(NOT MSVC)
     set(WARNINGS -Wall -Wextra -Wpedantic)
@@ -119,6 +126,19 @@ if(APPLE)
     set_source_files_properties(${WOBBLE_ICON} PROPERTIES
         MACOSX_PACKAGE_LOCATION Resources)
     target_sources(${PROJECT_NAME} PRIVATE ${WOBBLE_ICON})
+endif()
+if(WIN32)
+    # The icon and version shown in Explorer, the taskbar and the window.
+    set(WOBBLE_ICO ${CMAKE_SOURCE_DIR}/src/windows/Wobble.ico)
+    configure_file(src/windows/wobble.rc.in
+        ${CMAKE_BINARY_DIR}/wobble.rc @ONLY)
+    target_sources(${PROJECT_NAME} PRIVATE ${CMAKE_BINARY_DIR}/wobble.rc)
+    # A windowed app: no console opens with it. MSVC then looks for
+    # WinMain, so point it back at main.
+    set_target_properties(${PROJECT_NAME} PROPERTIES WIN32_EXECUTABLE TRUE)
+    if(MSVC)
+        target_link_options(${PROJECT_NAME} PRIVATE /ENTRY:mainCRTStartup)
+    endif()
 endif()
 add_dependencies(${PROJECT_NAME} generate_gui)
 target_compile_options(${PROJECT_NAME} PRIVATE ${WARNINGS})
@@ -195,11 +215,11 @@ target_compile_options(link_test PRIVATE ${WARNINGS})
 target_link_libraries(link_test wobble_core)
 add_test(NAME link_test COMMAND link_test)
 
-# Packaging: `cpack --config build-release/CPackConfig.cmake` (make dmg).
+# Packaging: `cpack` in a release build directory (make dmg / make windows).
 # On macOS that's Wobble-macOS.dmg (the app plus an Applications link to
-# drag it onto) and Wobble-macOS.zip (the bare app). The file names carry no
-# version, so the latest GitHub release always has the same download URLs
-# for the /download page; the version is the release's tag.
+# drag it onto); on Windows it's Wobble-Windows.zip (wobble.exe). The file names carry no version, so the
+# latest GitHub release always has the same download URLs for the /download
+# page; the version is the release's tag.
 if(APPLE)
     # Only the app: the "app" component leaves out what Raven installs.
     install(TARGETS ${PROJECT_NAME} BUNDLE DESTINATION . COMPONENT app)
@@ -208,9 +228,20 @@ if(APPLE)
     set(CPACK_PACKAGE_VENDOR "Wobble")
     set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
     set(CPACK_PACKAGE_FILE_NAME "Wobble-macOS")
-    set(CPACK_GENERATOR "DragNDrop;ZIP")
+    set(CPACK_GENERATOR "DragNDrop")
     set(CPACK_DMG_VOLUME_NAME "Wobble")
     set(CPACK_DMG_FORMAT "UDZO")
+    set(CPACK_INCLUDE_TOPLEVEL_DIRECTORY OFF)
+    include(CPack)
+elseif(WIN32)
+    # Wobble-Windows.zip: wobble.exe on its own, run from anywhere.
+    install(TARGETS ${PROJECT_NAME} RUNTIME DESTINATION . COMPONENT app)
+    set(CPACK_INSTALL_CMAKE_PROJECTS "${CMAKE_BINARY_DIR};${PROJECT_NAME};app;/")
+    set(CPACK_PACKAGE_NAME "Wobble")
+    set(CPACK_PACKAGE_VENDOR "Wobble")
+    set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
+    set(CPACK_PACKAGE_FILE_NAME "Wobble-Windows")
+    set(CPACK_GENERATOR "ZIP")
     set(CPACK_INCLUDE_TOPLEVEL_DIRECTORY OFF)
     include(CPack)
 endif()

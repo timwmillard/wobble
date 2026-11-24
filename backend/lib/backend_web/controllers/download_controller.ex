@@ -14,11 +14,17 @@ defmodule BackendWeb.DownloadController do
       name: "macOS",
       detail: "macOS 11 Big Sur or later · Apple Silicon and Intel",
       files: [
-        %{name: "Wobble-macOS.dmg", label: "Download .dmg", primary: true},
-        %{name: "Wobble-macOS.zip", label: ".app in a .zip", primary: false}
+        %{name: "Wobble-macOS.dmg", label: "Download .dmg", primary: true}
       ]
     },
-    %{id: :windows, name: "Windows", detail: "Windows 10 or later", files: []},
+    %{
+      id: :windows,
+      name: "Windows",
+      detail: "Windows 10 or later · 64-bit · nothing to install",
+      files: [
+        %{name: "Wobble-Windows.zip", label: "Download .zip", primary: true}
+      ]
+    },
     %{id: :linux, name: "Linux", detail: "x86_64", files: []}
   ]
 

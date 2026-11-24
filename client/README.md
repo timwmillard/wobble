@@ -11,13 +11,25 @@ cmake -B build && cmake --build build
 ./build/wobble https://wobblegame.fly.dev/r/abcd # a room link
 ctest --test-dir build                           # core tests
 make release                                     # build-release/, prod server
-make dmg                                         # macOS: Wobble-macOS.dmg/.zip
+make dmg                                         # macOS: Wobble-macOS.dmg
+make windows                                     # Windows: Wobble-Windows.zip
 ```
 
 `make dmg` is a universal (arm64 + x86_64) release build, ad-hoc signed and
-packaged by CPack into `build-release/Wobble-macOS.dmg` and `.zip`. Pushing a
-`v*` tag runs `.github/workflows/release.yml`, which does the same on a macOS
-runner and attaches both files to the GitHub release; the server's
+packaged by CPack into `build-release/Wobble-macOS.dmg`.
+
+`make windows` cross-compiles from macOS or Linux with MinGW-w64
+(`brew install mingw-w64`, or `apt install gcc-mingw-w64-x86-64`;
+toolchain in `cmake/mingw-w64.cmake`) into `build-windows/Wobble-Windows.zip`:
+one static `wobble.exe` with its icon (`src/windows/Wobble.ico`, made from
+the macOS icon SVGs). Raven needs the Vulkan headers for Windows: pass
+`VULKAN_HEADERS=<dir containing vulkan/vulkan.h>`, or Raven downloads them.
+On Windows itself, plain `cmake -B build && cmake --build build` with Visual
+C++ works too.
+
+Pushing a `v*` tag runs `.github/workflows/release.yml`, which builds both
+(macOS on a macOS runner, Windows cross-compiled and then tested on a
+Windows runner) and attaches the files to the GitHub release; the server's
 `/download` page links to the latest release's copies.
 
 ## Room links

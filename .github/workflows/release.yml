@@ -20,7 +20,20 @@ permissions:
   contents: write
 
 jobs:
+  # Once, before the builds upload to it in parallel.
+  release:
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - run: |
+          gh release view "$TAG" >/dev/null 2>&1 \
+            || gh release create "$TAG" --verify-tag --title "Wobble $TAG" --generate-notes
+
   macos:
+    needs: release
     runs-on: macos-latest
     defaults:
       run:
@@ -36,9 +49,51 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release view "$TAG" >/dev/null 2>&1 \
-            || gh release create "$TAG" --title "Wobble $TAG" --generate-notes
-          gh release upload "$TAG" --clobber \
-            build-release/Wobble-macOS.dmg build-release/Wobble-macOS.zip
+          gh release upload "$TAG" --clobber build-release/Wobble-macOS.dmg
 
-  # linux / windows: placeholders, see the /download page.
+  # Cross-compiled with MinGW-w64: a single static wobble.exe.
+  windows-build:
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      # Raven only needs the headers (vulkan-1.dll comes with the GPU driver).
+      - uses: actions/checkout@v4
+        with:
+          repository: KhronosGroup/Vulkan-Headers
+          ref: v1.3.290
+          path: _vulkan-headers
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends gcc-mingw-w64-x86-64
+      - run: make windows VULKAN_HEADERS=$GITHUB_WORKSPACE/_vulkan-headers/include
+        working-directory: client
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: |
+            client/build-windows/Wobble-Windows.zip
+            client/build-windows/*_test.exe
+
+  # Runs the core tests on real Windows, then uploads the build.
+  windows:
+    needs: [release, windows-build]
+    runs-on: windows-latest
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows
+      - run: ./game_test.exe && ./link_test.exe
+      - name: Upload to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh release upload "$TAG" --clobber Wobble-Windows.zip
+
+  # linux: placeholder, see the /download page.

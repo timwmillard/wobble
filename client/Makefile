@@ -1,5 +1,5 @@
 
-.PHONY: all run test web release dmg
+.PHONY: all run test web release dmg windows
 
 # The server a release build's bare room codes join.
 RELEASE_SERVER ?= wss://wobblegame.fly.dev
@@ -28,7 +28,7 @@ release:
 	@cmake --build build-release --parallel $(NPROC)
 
 # macOS: a universal (Apple Silicon + Intel) release build, packaged as
-# build-release/Wobble-macOS.dmg and .zip. Ad-hoc signed only, not notarized.
+# build-release/Wobble-macOS.dmg. Ad-hoc signed only, not notarized.
 dmg:
 	@cmake -B build-release -DCMAKE_BUILD_TYPE=Release -DWOBBLE_SERVER=$(RELEASE_SERVER) \
 		-DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
@@ -36,8 +36,18 @@ dmg:
 	@codesign --force --deep --sign - build-release/wobble.app
 	@cd build-release && cpack
 
+# Windows, cross-compiled with MinGW-w64 (brew install mingw-w64), packaged as
+# build-windows/Wobble-Windows.zip. Raven needs the Vulkan headers: pass
+# VULKAN_HEADERS=<dir with vulkan/vulkan.h>, else Raven downloads them.
+windows:
+	@cmake -B build-windows -DCMAKE_TOOLCHAIN_FILE=cmake/mingw-w64.cmake \
+		-DCMAKE_BUILD_TYPE=Release -DWOBBLE_SERVER=$(RELEASE_SERVER) \
+		$(if $(VULKAN_HEADERS),-DRAVEN_VULKAN_INCLUDE_DIR=$(VULKAN_HEADERS))
+	@cmake --build build-windows --parallel $(NPROC)
+	@cd build-windows && cpack
+
 clean:
-	@rm -rf build build-web build-release
+	@rm -rf build build-web build-release build-windows
 
 
 test: all

@@ -1,0 +1,30 @@
+// Windows resources for wobble.exe, filled in by CMake. Raven uses the
+// first icon here for the window and the taskbar.
+#include <winver.h>
+
+1 ICON "@WOBBLE_ICO@"
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION @PROJECT_VERSION_MAJOR@,@PROJECT_VERSION_MINOR@,@PROJECT_VERSION_PATCH@,0
+PRODUCTVERSION @PROJECT_VERSION_MAJOR@,@PROJECT_VERSION_MINOR@,@PROJECT_VERSION_PATCH@,0
+FILEOS VOS_NT_WINDOWS32
+FILETYPE VFT_APP
+BEGIN
+  BLOCK "StringFileInfo"
+  BEGIN
+    BLOCK "040904B0"
+    BEGIN
+      VALUE "CompanyName", "Wobble"
+      VALUE "FileDescription", "Wobble"
+      VALUE "FileVersion", "@PROJECT_VERSION@"
+      VALUE "InternalName", "wobble"
+      VALUE "OriginalFilename", "wobble.exe"
+      VALUE "ProductName", "Wobble"
+      VALUE "ProductVersion", "@PROJECT_VERSION@"
+    END
+  END
+  BLOCK "VarFileInfo"
+  BEGIN
+    VALUE "Translation", 0x409, 1200
+  END
+END

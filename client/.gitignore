@@ -4,6 +4,7 @@
 /build
 /build-web
 /build-release
+/build-windows
 *.o
 .idea
 /cmake-build-debug

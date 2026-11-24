@@ -4,6 +4,30 @@ defmodule BackendWeb.DownloadHTML do
 
   embed_templates "download_html/*"
 
+  attr :os, :atom, required: true, doc: ":macos, :windows or :linux"
+  attr :lines, :list, required: true, doc: "the commands, one per line"
+  slot :inner_block, doc: "a note under the platform's name"
+
+  # One platform's commands for a build-from-source step.
+  def os_commands(assigns) do
+    ~H"""
+    <div class="rounded-lg bg-black/40">
+      <div class="flex items-center gap-2 border-b border-white/5 px-4 py-2 text-xs font-semibold text-slate-400">
+        <.platform_logo id={@os} class="size-3.5" />
+        {os_name(@os)}
+        <span :if={@inner_block != []} class="font-normal text-slate-500">
+          · {render_slot(@inner_block)}
+        </span>
+      </div>
+      <pre class="overflow-x-auto px-4 py-3 text-[13px] text-slate-200"><code>{Enum.join(@lines, "\n")}</code></pre>
+    </div>
+    """
+  end
+
+  defp os_name(:macos), do: "macOS"
+  defp os_name(:windows), do: "Windows"
+  defp os_name(:linux), do: "Linux"
+
   attr :class, :string, default: "size-6"
   attr :id, :atom, required: true
 

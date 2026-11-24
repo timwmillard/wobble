@@ -1,4 +1,4 @@
-![Wobble](client/src/macos/banner.png)
+![Wobble](client/release/macos/banner.png)
 
 # Wobble
 

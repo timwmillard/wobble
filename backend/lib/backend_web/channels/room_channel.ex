@@ -16,7 +16,7 @@ defmodule BackendWeb.RoomChannel do
   @canvas_h 600
   @max_id 2_147_483_647
 
-  # Drawer: at most this many stroke/undo/clear messages per second.
+  # Drawing: at most this many stroke/undo/clear messages per second, per player.
   @stroke_rate 60
   # Chat: at most @chat_burst messages per @chat_window_ms.
   @chat_burst 5

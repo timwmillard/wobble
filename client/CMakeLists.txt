@@ -122,15 +122,15 @@ add_executable(${PROJECT_NAME}
 )
 if(APPLE)
     # Copied into wobble.app/Contents/Resources by MACOSX_PACKAGE_LOCATION.
-    set(WOBBLE_ICON ${CMAKE_SOURCE_DIR}/src/macos/Wobble.icns)
+    set(WOBBLE_ICON ${CMAKE_SOURCE_DIR}/release/macos/Wobble.icns)
     set_source_files_properties(${WOBBLE_ICON} PROPERTIES
         MACOSX_PACKAGE_LOCATION Resources)
     target_sources(${PROJECT_NAME} PRIVATE ${WOBBLE_ICON})
 endif()
 if(WIN32)
     # The icon and version shown in Explorer, the taskbar and the window.
-    set(WOBBLE_ICO ${CMAKE_SOURCE_DIR}/src/windows/Wobble.ico)
-    configure_file(src/windows/wobble.rc.in
+    set(WOBBLE_ICO ${CMAKE_SOURCE_DIR}/release/windows/Wobble.ico)
+    configure_file(release/windows/wobble.rc.in
         ${CMAKE_BINARY_DIR}/wobble.rc @ONLY)
     target_sources(${PROJECT_NAME} PRIVATE ${CMAKE_BINARY_DIR}/wobble.rc)
     # A windowed app: no console opens with it. MSVC then looks for
@@ -162,7 +162,7 @@ if(APPLE)
     # icon, menu bar name and Retina backing.
     set_target_properties(${PROJECT_NAME} PROPERTIES
         MACOSX_BUNDLE TRUE
-        MACOSX_BUNDLE_INFO_PLIST "${CMAKE_SOURCE_DIR}/src/macos/Info.plist.in"
+        MACOSX_BUNDLE_INFO_PLIST "${CMAKE_SOURCE_DIR}/release/macos/Info.plist.in"
         MACOSX_BUNDLE_BUNDLE_NAME "Wobble"
         MACOSX_BUNDLE_GUI_IDENTIFIER "io.wobble.client"
         MACOSX_BUNDLE_ICON_FILE "Wobble.icns"
@@ -250,8 +250,8 @@ else()
     # Runs from where it's unpacked. Only libX11 is linked; libssl, Vulkan,
     # Wayland and libXi are opened at run time if they're there.
     install(TARGETS ${PROJECT_NAME} RUNTIME DESTINATION wobble COMPONENT app)
-    install(FILES src/linux/wobble.desktop DESTINATION wobble COMPONENT app)
-    install(FILES src/macos/icon.svg DESTINATION wobble RENAME wobble.svg
+    install(FILES release/linux/wobble.desktop DESTINATION wobble COMPONENT app)
+    install(FILES release/macos/icon.svg DESTINATION wobble RENAME wobble.svg
         COMPONENT app)
     set(CPACK_INSTALL_CMAKE_PROJECTS "${CMAKE_BINARY_DIR};${PROJECT_NAME};app;/")
     set(CPACK_PACKAGE_NAME "Wobble")

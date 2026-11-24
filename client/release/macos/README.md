@@ -18,7 +18,7 @@ anything. After editing an SVG, regenerate them by hand (needs `rsvg-convert`
 from librsvg, plus `iconutil`, which ships with macOS):
 
 ```sh
-cd src/macos
+cd release/macos
 mkdir -p /tmp/Wobble.iconset
 for s in 16 32 128 256 512; do
   for scale in 1 2; do

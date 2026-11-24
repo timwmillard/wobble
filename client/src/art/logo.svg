@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="203" height="160" viewBox="175 205 760 600">
-  <!-- The app icon's art (../macos/icon.svg) without its tile, for the join
+  <!-- The app icon's art (../../release/macos/icon.svg) without its tile, for the join
        screen. Raven draws no filters, so the shadows are plain translucent
        shapes. -->
   <defs>

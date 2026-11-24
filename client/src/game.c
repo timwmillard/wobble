@@ -487,6 +487,16 @@ void game_disconnected(game *g, const char *reason) {
    g->dirty |= GAME_DIRTY_PHASE;
 }
 
+void game_leave(game *g) {
+   g->st.phase = GAME_OFFLINE;
+   g->st.deadline_ms = 0;
+   g->st.player_count = 0;
+   g->chat_len = 0;
+   reset_strokes(g);
+   set_error(g, S(""));
+   g->dirty |= GAME_DIRTY_PHASE | GAME_DIRTY_PLAYERS | GAME_DIRTY_CHAT;
+}
+
 void game_on_message(game *g, const char *text, usize len, u64 now_ms) {
    phx_msg m;
    if (phx_parse(&g->scratch, string_view_bytes(text, len), &m))

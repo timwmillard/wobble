@@ -329,17 +329,26 @@ static void refresh_phase(void) {
 
 #ifdef __EMSCRIPTEN__
 void wobble_show_room(const char *code); // web/wobble_lib.js
+void wobble_show_home(void);
+static char shown_room[32]; // the room in the address bar, "" for none
 #endif
 
 // In the browser, once we are in a room the address bar shows its link,
 // /r/<code>, ready to share.
 static void show_room_in_url(void) {
 #ifdef __EMSCRIPTEN__
-   static char shown[32];
-   if (strcmp(shown, room) == 0)
+   if (strcmp(shown_room, room) == 0)
       return;
-   snprintf(shown, sizeof(shown), "%s", room);
+   snprintf(shown_room, sizeof(shown_room), "%s", room);
    wobble_show_room(room);
+#endif
+}
+
+// After leaving, so a reload doesn't drop us straight back in.
+static void clear_room_from_url(void) {
+#ifdef __EMSCRIPTEN__
+   shown_room[0] = '\0';
+   wobble_show_home();
 #endif
 }
 
@@ -364,7 +373,8 @@ static void refresh(u32 dirty) {
          saved_token = string_dup(&saved_arena, st->token);
          saved_room = string_from(&saved_arena, room);
       }
-      show_room_in_url();
+      if (st->phase >= GAME_LOBBY)
+         show_room_in_url();
    }
 }
 
@@ -488,6 +498,22 @@ static void on_join(Rid sender, const char *action, void *user_data) {
       join();
 }
 
+// Closing the socket is the whole goodbye: the server sees the channel go
+// and tells the room we left. Our token is kept, so rejoining the same room
+// soon after gets the seat (and score) back.
+static void on_leave(Rid sender, const char *action, void *user_data) {
+   (void)sender;
+   (void)action;
+   (void)user_data;
+   transport_free(conn);
+   conn = NULL;
+   conn_gen++; // drop anything the old connection still has queued
+   game_leave(g);
+   refresh(game_dirty(g));
+   clear_room_from_url();
+   Rwidget_focus(room_input);
+}
+
 static void on_start(Rid sender, const char *action, void *user_data) {
    (void)sender;
    (void)action;
@@ -557,9 +583,12 @@ int main(int argc, char *argv[]) {
    }
 
    Rinit(R_BACKEND_DEFAULT);
+   Rtheme_set_metric(R_METRIC_FONT_SIZE,
+                     Rtheme_get_metric(R_METRIC_FONT_SIZE) * 1.15f);
    g = game_new(send_frame, NULL);
 
    Raction_bind("ui.join", on_join, NULL);
+   Raction_bind("ui.leave", on_leave, NULL);
    Raction_bind("ui.start", on_start, NULL);
    Raction_bind("ui.choose0", on_choose, (void *)(intptr_t)0);
    Raction_bind("ui.choose1", on_choose, (void *)(intptr_t)1);

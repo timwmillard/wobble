@@ -336,6 +336,27 @@ static void test_chat_overflow(void) {
    game_free(g);
 }
 
+static void test_leave(void) {
+   game *g = joined_game();
+   feed(g,
+        "[\"1\",null,\"room:abcd\",\"chat\",{\"from\":\"Bo\","
+        "\"text\":\"hi\",\"kind\":\"msg\"}]",
+        0);
+   game_dirty(g);
+   game_leave(g);
+   const game_state *st = game_get_state(g);
+   CHECK(st->phase == GAME_OFFLINE);
+   CHECK(st->player_count == 0);
+   CHECK(st->error.len == 0);
+   usize n;
+   game_chat(g, &n);
+   CHECK(n == 0);
+   CHECK(game_dirty(g) & GAME_DIRTY_PHASE);
+   // The token stays, so coming back to the room keeps the seat.
+   CHECK(string_eq(st->token, S("tok")));
+   game_free(g);
+}
+
 static void test_heartbeat(void) {
    game *g = joined_game();
    game_tick(g, 1000 + GAME_HEARTBEAT_MS - 1);
@@ -406,6 +427,7 @@ int main(void) {
    test_drawer_turn();
    test_guesser();
    test_chat_overflow();
+   test_leave();
    test_heartbeat();
    test_rejoin_after_channel_error();
    test_string_lifetimes();

@@ -116,6 +116,9 @@ void game_connected(game *g, string room, string name, string token,
                     u64 now_ms);
 // The transport closed.
 void game_disconnected(game *g, const char *reason);
+// We left the room on purpose: back offline with no error, and the room's
+// chat and drawing forgotten. The caller closes the connection.
+void game_leave(game *g);
 
 // One text frame from the server.
 void game_on_message(game *g, const char *text, usize len, u64 now_ms);

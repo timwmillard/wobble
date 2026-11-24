@@ -34,8 +34,10 @@
           <Label Name="round" Text="Lobby" Opacity="0.75" MinWidth="140" Slot.VAlign="Center"/>
           <Label Name="word" Text="" TextSize="24" TextAlign="Center" Slot.Fill="1"
                  Slot.VAlign="Center"/>
-          <Label Name="timer" Text="" TextSize="22" TextAlign="Right" MinWidth="140"
+          <Label Name="timer" Text="" TextSize="22" TextAlign="Right" MinWidth="80"
                  Slot.VAlign="Center"/>
+          <Button Name="leave" Text="Leave" OnClicked="ui.leave" Metric.ControlHeight="34"
+                  Slot.VAlign="Center"/>
         </HBox>
       </Border>
 
@@ -61,12 +63,18 @@
               <VBox Spacing="14">
                 <Label Name="choose_title" Text="Choose a word" TextSize="22" Slot.HAlign="Center"/>
                 <HBox Name="choices" Spacing="10" Slot.HAlign="Center">
-                  <Button Name="choice0" Text="" Style="Primary" OnClicked="ui.choose0"
-                          Metric.ControlHeight="44" Metric.PaddingX="18"/>
-                  <Button Name="choice1" Text="" Style="Primary" OnClicked="ui.choose1"
-                          Metric.ControlHeight="44" Metric.PaddingX="18"/>
-                  <Button Name="choice2" Text="" Style="Primary" OnClicked="ui.choose2"
-                          Metric.ControlHeight="44" Metric.PaddingX="18"/>
+                  <Button Name="choice0" Style="Primary" OnClicked="ui.choose0"
+                          Metric.ControlHeight="52" Metric.PaddingX="22">
+                    <Label TextSize="24" Slot.HAlign="Center" Slot.VAlign="Center"/>
+                  </Button>
+                  <Button Name="choice1" Style="Primary" OnClicked="ui.choose1"
+                          Metric.ControlHeight="52" Metric.PaddingX="22">
+                    <Label TextSize="24" Slot.HAlign="Center" Slot.VAlign="Center"/>
+                  </Button>
+                  <Button Name="choice2" Style="Primary" OnClicked="ui.choose2"
+                          Metric.ControlHeight="52" Metric.PaddingX="22">
+                    <Label TextSize="24" Slot.HAlign="Center" Slot.VAlign="Center"/>
+                  </Button>
                 </HBox>
               </VBox>
             </Border>

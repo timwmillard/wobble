@@ -7,4 +7,8 @@ addToLibrary({
     wobble_show_room: function(code) {
         history.replaceState(null, "", "/r/" + encodeURIComponent(UTF8ToString(code)));
     },
+    // Back to the bare page once we leave the room.
+    wobble_show_home: function() {
+        history.replaceState(null, "", "/");
+    },
 });

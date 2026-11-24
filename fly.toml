@@ -1,0 +1,37 @@
+# Fly.io config. Deploy from the repo root: fly deploy
+#
+# Rooms live in memory on one node (a local Registry), so run exactly one
+# machine: players on a second machine wouldn't see each other's rooms.
+app = "wobblegame"
+primary_region = "syd"
+kill_signal = "SIGTERM"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PHX_HOST = "wobblegame.fly.dev"
+  PORT = "8080"
+  # SQLite on the machine's ephemeral disk: nothing is stored there yet.
+  # Mount a volume here before keeping anything that must survive a deploy.
+  DATABASE_PATH = "/app/backend.db"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  # Idle machines stop and start again on the next request. Open game
+  # sockets count as traffic, so a machine with players stays up.
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ["app"]
+
+  [http_service.concurrency]
+    type = "connections"
+    hard_limit = 1000
+    soft_limit = 1000
+
+[[vm]]
+  memory = "512mb"
+  cpu_kind = "shared"
+  cpus = 1

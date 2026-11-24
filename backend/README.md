@@ -16,3 +16,18 @@ Ready to run in production? Please [check our deployment guides](https://phoenix
 * Docs: https://phoenix.hexdocs.pm
 * Forum: https://elixirforum.com/c/phoenix-forum
 * Source: https://github.com/phoenixframework/phoenix
+
+## Deploying to Fly.io
+
+`fly.toml` and the `Dockerfile` live at the repo root, because the image
+builds both the WebAssembly client (`client/`, with emsdk) and this release.
+From the repo root:
+
+```sh
+fly apps create wobble          # once; pick another name if taken, and update
+                                # app + PHX_HOST in fly.toml to match
+fly secrets set SECRET_KEY_BASE=$(openssl rand -base64 48)  # once
+fly deploy --ha=false           # one machine: rooms live in memory
+```
+
+Native clients connect with `--server wss://wobble.fly.dev`.

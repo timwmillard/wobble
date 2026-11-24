@@ -1,0 +1,29 @@
+# Build context is the repo root: the image builds client/ (WebAssembly) and
+# backend/ (Phoenix release) together.
+.git
+.worktrees
+.claude
+**/.DS_Store
+pen_test/
+
+# client build output
+client/build/
+client/build-web/
+client/cmake-build-*/
+client/.cache/
+
+# Mix artifacts and generated assets (built inside the image)
+backend/_build/
+backend/deps/
+backend/cover/
+backend/doc/
+backend/test/
+backend/tmp/
+backend/.elixir_ls
+backend/*.db
+backend/*.db-*
+backend/erl_crash.dump
+backend/assets/node_modules/
+backend/priv/static/assets/
+backend/priv/static/cache_manifest.json
+backend/priv/static/play/

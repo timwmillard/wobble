@@ -15,19 +15,19 @@
 #define GAME_CANVAS_W 800
 #define GAME_CANVAS_H 600
 
-#define GAME_MAX_PLAYERS 12
+#define GAME_MAX_PLAYERS  12
 #define GAME_PALETTE_SIZE 16
-#define GAME_CHAT_LINES 128
+#define GAME_CHAT_LINES   128
 #define GAME_HEARTBEAT_MS 30000
 
 // Send stroke chunks this often while the pen is down, or sooner when this
 // many points are waiting.
-#define GAME_CHUNK_MS 33
+#define GAME_CHUNK_MS     33
 #define GAME_CHUNK_POINTS 64
 
 typedef enum {
-   GAME_OFFLINE,    // not connected yet, or the connection is gone
-   GAME_JOINING,    // connected, waiting for the join reply
+   GAME_OFFLINE, // not connected yet, or the connection is gone
+   GAME_JOINING, // connected, waiting for the join reply
    GAME_LOBBY,
    GAME_CHOOSING,
    GAME_DRAWING,
@@ -73,7 +73,10 @@ typedef struct {
 
 typedef LIST(game_point) game_point_list;
 
+/* A stroke is keyed by (by, id): ids are picked by each author, and in the
+ * lobby (practice) everyone draws at once. */
 typedef struct {
+   string by; // the author's player id
    u32 id;
    u8 color; // palette index
    u8 size;  // 1-40
@@ -133,6 +136,8 @@ void game_set_brush(game *g, int color, int size);
 void game_pen_down(game *g, float x, float y, float pressure, u64 now_ms);
 void game_pen_move(game *g, float x, float y, float pressure, u64 now_ms);
 void game_pen_up(game *g, u64 now_ms);
+// Undo our latest stroke. Clear wipes the canvas during a turn and for the
+// host in practice; for anyone else in practice it wipes only their strokes.
 void game_undo(game *g);
 void game_clear(game *g);
 
@@ -144,8 +149,12 @@ const game_chat_line *game_chat(const game *g, usize *count);
 const game_player *game_me(const game *g);
 bool game_is_host(const game *g);
 bool game_is_drawer(const game *g);
-// True while we're the drawer and the drawing phase is on.
+// True while we're the drawer and the drawing phase is on, and for everyone
+// in the lobby and after the game, where the canvas is a shared doodle pad.
 bool game_can_draw(const game *g);
+// True in the lobby and after the game: anyone may draw, undo and clear
+// their own strokes, and the host's clear wipes everyone's.
+bool game_is_practice(const game *g);
 int game_time_left_ms(const game *g, u64 now_ms);
 // What changed since the last call (GAME_DIRTY_* bits); clears them.
 u32 game_dirty(game *g);

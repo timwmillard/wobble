@@ -65,25 +65,31 @@
 
       <HBox Slot.Fill="1" Spacing="0">
 
-        <!-- The canvas, its overlays and the drawer's tools -->
+        <!-- The lobby bar, the canvas with its overlays, and the brush tools
+             (the drawer's in a turn, everyone's in the lobby) -->
         <VBox Slot.Fill="1" Spacing="8" Slot.Padding="12">
+          <!-- The lobby sits above the canvas rather than over it: everyone
+               can doodle on the canvas while they wait -->
+          <Border Name="lobby_panel" Background="#262A33" CornerRadius="12" Padding="16,10"
+                  Visibility="Collapsed">
+            <HBox Spacing="12">
+              <VBox Spacing="2" Slot.Fill="1" Slot.VAlign="Center">
+                <Label Text="Waiting room" TextSize="18"/>
+                <Label Name="lobby_text" Text="" Opacity="0.75" TextSize="15"/>
+              </VBox>
+              <VBox Spacing="2" Slot.VAlign="Center">
+                <Label Text="Invite friends with this link:" Opacity="0.6" TextSize="13"/>
+                <Label Name="invite_link" Text="" TextSize="15"/>
+              </VBox>
+              <Button Name="copy_invite" Text="Copy invite link" OnClicked="ui.copy_link"
+                      Metric.ControlHeight="36" Slot.VAlign="Center"/>
+              <Button Name="start" Text="Start game" Style="Primary" OnClicked="ui.start"
+                      Metric.ControlHeight="40" Slot.VAlign="Center"/>
+            </HBox>
+          </Border>
+
           <Overlay Slot.Fill="1">
             <Custom Name="canvas"/>
-
-            <Border Name="lobby_panel" Background="#262A33EE" CornerRadius="14" Padding="24,20"
-                    Slot.HAlign="Center" Slot.VAlign="Center" Visibility="Collapsed">
-              <VBox Spacing="12">
-                <Label Text="Waiting room" TextSize="22" Slot.HAlign="Center"/>
-                <Label Name="lobby_text" Text="" Opacity="0.75" Slot.HAlign="Center"/>
-                <Label Text="Invite friends with this link:" Opacity="0.6" TextSize="15"
-                       Slot.HAlign="Center" Slot.Padding="0,6,0,0"/>
-                <Label Name="invite_link" Text="" TextSize="17" Slot.HAlign="Center"/>
-                <Button Name="copy_invite" Text="Copy invite link" OnClicked="ui.copy_link"
-                        Metric.ControlHeight="36" Slot.HAlign="Center"/>
-                <Button Name="start" Text="Start game" Style="Primary" OnClicked="ui.start"
-                        Metric.ControlHeight="40" Slot.HAlign="Center"/>
-              </VBox>
-            </Border>
 
             <Border Name="choose_panel" Background="#262A33EE" CornerRadius="14" Padding="24,20"
                     Slot.HAlign="Center" Slot.VAlign="Center" Visibility="Collapsed">
@@ -114,8 +120,10 @@
               </VBox>
             </Border>
 
-            <Border Name="over_panel" Background="#262A33F2" CornerRadius="14" Padding="28,22"
-                    Slot.HAlign="Center" Slot.VAlign="Center" Visibility="Collapsed" MinWidth="300">
+            <!-- In a corner: after the game the canvas is a shared doodle pad -->
+            <Border Name="over_panel" Background="#262A33F2" CornerRadius="14" Padding="20,16"
+                    Slot.HAlign="Right" Slot.VAlign="Top" Slot.Padding="12"
+                    Visibility="Collapsed" MinWidth="260">
               <VBox Spacing="10">
                 <Label Text="Game over" TextSize="26" Slot.HAlign="Center"/>
                 <VBox Name="ranking" Spacing="4"/>

@@ -121,11 +121,16 @@ defmodule Backend.Room do
     end
   end
 
+  # Strokes, undo and clear. During a turn only the drawer may draw. In the
+  # lobby and after the game ("practice") anyone may, so every stored and
+  # broadcast stroke carries its author as `by`: stroke ids are picked by the
+  # clients and only unique per author.
   def handle_call({:stroke, pid, stroke}, _from, state) do
-    with {:ok, _id} <- drawer_drawing(state, pid),
-         size = stroke_size(stroke),
-         :ok <- check(state.stroke_bytes + size <= Rules.config(:max_stroke_bytes), :too_much_ink) do
+    with {:ok, id} <- may_draw(state, pid),
+         stroke = Map.put(stroke, :by, id),
+         {:ok, state} <- make_room_for(state, stroke_size(stroke)) do
       @endpoint.broadcast_from(pid, topic(state), "stroke", stroke)
+      size = stroke_size(stroke)
 
       {:reply, :ok,
        %{state | strokes: [stroke | state.strokes], stroke_bytes: state.stroke_bytes + size}}
@@ -134,22 +139,32 @@ defmodule Backend.Room do
     end
   end
 
+  # Undo only ever removes the caller's own stroke.
   def handle_call({:undo, pid, stroke_id}, _from, state) do
-    case drawer_drawing(state, pid) do
-      {:ok, _} ->
-        @endpoint.broadcast_from(pid, topic(state), "undo", %{id: stroke_id})
-        {:reply, :ok, %{state | strokes: Enum.reject(state.strokes, &(&1.id == stroke_id))}}
+    case may_draw(state, pid) do
+      {:ok, id} ->
+        @endpoint.broadcast_from(pid, topic(state), "undo", %{id: stroke_id, by: id})
+        {:reply, :ok, drop_strokes(state, &(&1.by == id and &1.id == stroke_id))}
 
       error ->
         {:reply, error, state}
     end
   end
 
+  # In a turn the drawer clears the canvas. In practice the host clears the
+  # whole canvas (so one player can tidy up after everyone) and anyone else
+  # clears only their own strokes; the broadcast's `by` says whose strokes
+  # went, and no `by` means all of them.
   def handle_call({:clear, pid}, _from, state) do
-    case drawer_drawing(state, pid) do
-      {:ok, _} ->
-        @endpoint.broadcast_from(pid, topic(state), "clear", %{})
-        {:reply, :ok, %{state | strokes: []}}
+    case may_draw(state, pid) do
+      {:ok, id} ->
+        if practice?(state) and id != state.host do
+          @endpoint.broadcast_from(pid, topic(state), "clear", %{by: id})
+          {:reply, :ok, drop_strokes(state, &(&1.by == id))}
+        else
+          @endpoint.broadcast_from(pid, topic(state), "clear", %{})
+          {:reply, :ok, drop_strokes(state, fn _ -> true end)}
+        end
 
       error ->
         {:reply, error, state}
@@ -377,6 +392,7 @@ defmodule Backend.Room do
 
       :game_over ->
         %{state | phase: :game_over, turn: state.turn + 1, drawer: nil, deadline: nil}
+        |> recount_ink()
         |> system_chat("Game over!")
         |> broadcast_state()
     end
@@ -564,11 +580,19 @@ defmodule Backend.Room do
     end
   end
 
-  defp drawer_drawing(state, pid) do
-    with {:ok, id} <- player_id(state, pid),
-         :ok <- check(id == state.drawer, :not_drawer),
-         :ok <- check(state.phase == :drawing, :wrong_phase),
-         do: {:ok, id}
+  # The lobby and the game-over screen are a shared practice canvas.
+  defp practice?(state), do: state.phase in [:lobby, :game_over]
+
+  defp may_draw(state, pid) do
+    with {:ok, id} <- player_id(state, pid) do
+      if practice?(state) do
+        {:ok, id}
+      else
+        with :ok <- check(id == state.drawer, :not_drawer),
+             :ok <- check(state.phase == :drawing, :wrong_phase),
+             do: {:ok, id}
+      end
+    end
   end
 
   defp check(true, _reason), do: :ok
@@ -590,6 +614,47 @@ defmodule Backend.Room do
   end
 
   defp stroke_size(stroke), do: 16 + 4 * length(stroke.pts)
+
+  ## Ink
+
+  # Removes the stored stroke chunks matching `fun`. In a turn the ink spent
+  # stays spent, so a drawer can't undo and redraw forever; in practice the
+  # count follows what is on the canvas, since the canvas lives on.
+  defp drop_strokes(state, fun) do
+    {gone, kept} = Enum.split_with(state.strokes, fun)
+
+    if practice?(state) do
+      freed = gone |> Enum.map(&stroke_size/1) |> Enum.sum()
+      %{state | strokes: kept, stroke_bytes: state.stroke_bytes - freed}
+    else
+      %{state | strokes: kept}
+    end
+  end
+
+  # During a turn a full canvas refuses more ink. In practice the oldest
+  # strokes are wiped instead (everyone is told with an "undo"), so a long
+  # doodling session never locks up.
+  defp make_room_for(state, size) do
+    max = Rules.config(:max_stroke_bytes)
+
+    cond do
+      state.stroke_bytes + size <= max -> {:ok, state}
+      not practice?(state) or state.strokes == [] -> {:error, :too_much_ink}
+      true -> state |> drop_oldest_stroke() |> make_room_for(size)
+    end
+  end
+
+  defp drop_oldest_stroke(state) do
+    %{id: id, by: by} = List.last(state.strokes)
+    @endpoint.broadcast(topic(state), "undo", %{id: id, by: by})
+    drop_strokes(state, &(&1.by == by and &1.id == id))
+  end
+
+  # The ink count of what is on the canvas now, for when a game ends and its
+  # last drawing becomes the practice canvas.
+  defp recount_ink(state) do
+    %{state | stroke_bytes: state.strokes |> Enum.map(&stroke_size/1) |> Enum.sum()}
+  end
 
   defp cancel_stop(state), do: %{state | stop_gen: state.stop_gen + 1}
 

@@ -64,6 +64,111 @@ defmodule BackendWeb.RoomChannelTest do
     end
   end
 
+  describe "practice canvas" do
+    defp stroke(id, end? \\ true),
+      do: %{"id" => id, "pts" => [10, 20, 30, 40], "c" => 1, "s" => 4, "end" => end?}
+
+    test "everyone in the lobby can draw, tagged with the author", %{code: code} do
+      ana = TestPlayer.join(code, "Ana")
+      bo = TestPlayer.join(code, "Bo")
+      cy = TestPlayer.join(code, "Cy")
+      drain()
+
+      # Both pick id 1: the author keeps them apart.
+      assert nil == TestPlayer.send_event(ana, "stroke", stroke(1))
+      assert nil == TestPlayer.send_event(bo, "stroke", stroke(1))
+
+      ana_id = ana.id
+      bo_id = bo.id
+      assert %{id: 1, by: ^ana_id} = next(cy.name, "stroke")
+      assert %{id: 1, by: ^bo_id} = next(cy.name, "stroke")
+      assert %{id: 1, by: ^bo_id} = next(ana.name, "stroke")
+      assert %{id: 1, by: ^ana_id} = next(bo.name, "stroke")
+
+      late = TestPlayer.join(code, "Late")
+      assert [%{id: 1, by: ^ana_id}, %{id: 1, by: ^bo_id}] = late.join.strokes
+    end
+
+    test "undo removes only the caller's own stroke", %{code: code} do
+      ana = TestPlayer.join(code, "Ana")
+      bo = TestPlayer.join(code, "Bo")
+      TestPlayer.send_event(ana, "stroke", stroke(1))
+      TestPlayer.send_event(bo, "stroke", stroke(1))
+      drain()
+
+      assert {:ok, _} = TestPlayer.send_event(bo, "undo", %{"id" => 1})
+      bo_id = bo.id
+      assert %{id: 1, by: ^bo_id} = next(ana.name, "undo")
+
+      # Undoing an id Bo no longer has leaves Ana's stroke alone.
+      assert {:ok, _} = TestPlayer.send_event(bo, "undo", %{"id" => 1})
+      ana_id = ana.id
+      assert [%{id: 1, by: ^ana_id}] = TestPlayer.join(code, "Late").join.strokes
+    end
+
+    test "the host clears everything, others only their own", %{code: code} do
+      ana = TestPlayer.join(code, "Ana")
+      bo = TestPlayer.join(code, "Bo")
+      TestPlayer.send_event(ana, "stroke", stroke(1))
+      TestPlayer.send_event(bo, "stroke", stroke(2))
+      drain()
+
+      assert {:ok, _} = TestPlayer.send_event(bo, "clear")
+      bo_id = bo.id
+      assert %{by: ^bo_id} = next(ana.name, "clear")
+      assert [%{id: 1}] = TestPlayer.join(code, "Cy").join.strokes
+
+      TestPlayer.send_event(bo, "stroke", stroke(3))
+      drain()
+      assert {:ok, _} = TestPlayer.send_event(ana, "clear")
+      assert next(bo.name, "clear") == %{}
+      assert [] = TestPlayer.join(code, "Di").join.strokes
+    end
+
+    test "starting the game wipes the canvas and the drawer rules return", %{code: code} do
+      ana = TestPlayer.join(code, "Ana")
+      bo = TestPlayer.join(code, "Bo")
+      TestPlayer.send_event(bo, "stroke", stroke(1))
+
+      assert {:ok, _} = TestPlayer.send_event(ana, "start")
+      state = next_state(ana.name, "choosing")
+      assert Backend.Room.get_state(Backend.Room.whereis(code)).strokes == []
+
+      players = [ana, bo]
+      drawer = by_id(players, state.drawer)
+      [guesser] = players -- [drawer]
+
+      assert {:error, %{reason: "not_drawer"}} =
+               TestPlayer.send_event(guesser, "stroke", stroke(2))
+
+      assert {:error, %{reason: "wrong_phase"}} =
+               TestPlayer.send_event(drawer, "stroke", stroke(2))
+
+      TestPlayer.send_event(drawer, "choose", %{"index" => 0})
+      next_state(guesser.name, "drawing")
+
+      assert {:error, %{reason: "not_drawer"}} =
+               TestPlayer.send_event(guesser, "stroke", stroke(2))
+
+      assert {:error, %{reason: "not_drawer"}} = TestPlayer.send_event(guesser, "clear")
+
+      assert {:error, %{reason: "not_drawer"}} =
+               TestPlayer.send_event(guesser, "undo", %{"id" => 1})
+    end
+
+    test "anyone can draw again once the game is over", %{code: code} do
+      {players, _} = start_game(code, ["Ana", "Bo"])
+      ids = Map.new(players, &{&1.id, &1})
+      play_until_over(ids, "Ana", 0)
+      [ana, bo] = players
+      drain()
+
+      assert nil == TestPlayer.send_event(bo, "stroke", stroke(9))
+      bo_id = bo.id
+      assert %{id: 9, by: ^bo_id} = next(ana.name, "stroke")
+    end
+  end
+
   describe "a turn" do
     test "only the drawer gets the choices and the word", %{code: code} do
       {players, state} = start_game(code, ["Ana", "Bo", "Cy"])

@@ -319,6 +319,203 @@ static void test_guesser(void) {
    game_free(g);
 }
 
+static void remote_stroke(game *g, const char *by, int id, const char *pts,
+                          bool end) {
+   char buf[512];
+   snprintf(buf, sizeof(buf),
+            "[\"1\",null,\"room:abcd\",\"stroke\",{\"by\":\"%s\",\"id\":%d,"
+            "\"pts\":[%s],\"c\":2,\"s\":3,\"end\":%s}]",
+            by, id, pts, end ? "true" : "false");
+   feed(g, buf, 2000);
+}
+
+static usize strokes_by(game *g, const char *by) {
+   usize n, count = 0;
+   const game_stroke *s = game_strokes(g, &n);
+   for (usize i = 0; i < n; i++)
+      count += string_eq(s[i].by, string_view(by));
+   return count;
+}
+
+static const game_stroke *stroke_of(game *g, const char *by, u32 id) {
+   usize n;
+   const game_stroke *s = game_strokes(g, &n);
+   for (usize i = 0; i < n; i++) {
+      if (s[i].id == id && string_eq(s[i].by, string_view(by)))
+         return &s[i];
+   }
+   return NULL;
+}
+
+static void practice_state(game *g, const char *phase, int turn,
+                           const char *host) {
+   char buf[512];
+   snprintf(buf, sizeof(buf),
+            "[\"1\",null,\"room:abcd\",\"state\",{\"phase\":\"%s\","
+            "\"turn\":%d,\"round\":0,\"rounds\":3,\"players\":[],"
+            "\"host\":\"%s\",\"drawer\":null,\"time_left_ms\":0}]",
+            phase, turn, host);
+   feed(g, buf, 2000);
+}
+
+static void test_practice(void) {
+   game *g = joined_game();
+   CHECK(game_is_practice(g));
+   CHECK(game_can_draw(g));
+   usize n;
+
+   // We, Bo and Cy all draw a stroke 1 at once; each author's chunks join
+   // their own stroke.
+   game_pen_down(g, 100, 100, -1, 2000);
+   remote_stroke(g, "bo", 1, "0,0,5,5", false);
+   game_pen_move(g, 120, 100, -1, 2001);
+   remote_stroke(g, "cy", 1, "50,50,60,60", false);
+   remote_stroke(g, "bo", 1, "5,5,9,9", true);
+   game_pen_move(g, 140, 100, -1, 2002);
+   remote_stroke(g, "cy", 1, "60,60,70,70", true);
+   game_pen_up(g, 2003);
+
+   game_strokes(g, &n);
+   CHECK(n == 3);
+   const game_stroke *mine = stroke_of(g, "me", 1);
+   CHECK(mine && mine->done && mine->pts.len == 3);
+   CHECK(mine && mine->pts.items[2].x == 140);
+   CHECK(stroke_of(g, "bo", 1) && stroke_of(g, "bo", 1)->pts.len == 4);
+   CHECK(stroke_of(g, "cy", 1) && stroke_of(g, "cy", 1)->done);
+   phx_msg m = last_sent();
+   CHECK(string_eq(m.event, S("stroke")));
+   CHECK(json_get(m.payload, S("end"))->boolean);
+   CHECK(json_get(m.payload, S("pts"))->len == 6);
+
+   // Bo's undo of their stroke 1 leaves ours and Cy's.
+   feed(g, "[\"1\",null,\"room:abcd\",\"undo\",{\"id\":1,\"by\":\"bo\"}]",
+        2000);
+   CHECK(strokes_by(g, "bo") == 0);
+   CHECK(strokes_by(g, "me") == 1 && strokes_by(g, "cy") == 1);
+
+   // Our undo takes our own latest stroke, though Cy's is newer.
+   clear_sent();
+   game_undo(g);
+   CHECK(strokes_by(g, "me") == 0 && strokes_by(g, "cy") == 1);
+   m = last_sent();
+   CHECK(string_eq(m.event, S("undo")));
+   CHECK(json_get(m.payload, S("id"))->number == 1);
+   // With none of ours left, undo does nothing.
+   clear_sent();
+   game_undo(g);
+   CHECK(sent_count == 0);
+
+   // A clear by one guest takes only their strokes; one without "by" (the
+   // host's) takes everything.
+   remote_stroke(g, "bo", 2, "1,1,2,2", true);
+   feed(g, "[\"1\",null,\"room:abcd\",\"clear\",{\"by\":\"cy\"}]", 2000);
+   CHECK(strokes_by(g, "cy") == 0 && strokes_by(g, "bo") == 1);
+   feed(g, "[\"1\",null,\"room:abcd\",\"clear\",{}]", 2000);
+   game_strokes(g, &n);
+   CHECK(n == 0);
+
+   // The server dropping our stroke in progress (the ink cap) lifts the pen.
+   game_pen_down(g, 10, 10, -1, 3000);
+   u32 pen = stroke_of(g, "me", 2) ? 2 : 0;
+   CHECK(pen == 2);
+   feed(g, "[\"1\",null,\"room:abcd\",\"undo\",{\"id\":2,\"by\":\"me\"}]",
+        3000);
+   clear_sent();
+   game_pen_move(g, 50, 50, -1, 3001);
+   game_tick(g, 3100);
+   game_pen_up(g, 3101);
+   CHECK(sent_count == 0);
+   game_strokes(g, &n);
+   CHECK(n == 0);
+
+   // As host, our clear wipes everyone's.
+   remote_stroke(g, "bo", 3, "1,1,2,2", true);
+   game_pen_down(g, 10, 10, -1, 3200);
+   game_pen_up(g, 3201);
+   clear_sent();
+   game_clear(g);
+   game_strokes(g, &n);
+   CHECK(n == 0);
+   CHECK(string_eq(last_sent().event, S("clear")));
+
+   // The game starting wipes the canvas, and the drawer rules are back.
+   remote_stroke(g, "bo", 4, "1,1,2,2", true);
+   state_frame(g, "choosing", 1, "bo", "", 4000);
+   game_strokes(g, &n);
+   CHECK(n == 0);
+   CHECK(!game_is_practice(g) && !game_can_draw(g));
+   state_frame(g, "drawing", 1, "bo", "", 4100);
+   CHECK(!game_can_draw(g));
+   clear_sent();
+   game_clear(g);
+   game_undo(g);
+   CHECK(sent_count == 0);
+
+   // After the game anyone can doodle again. Bo is host now, so our clear
+   // takes only our strokes.
+   remote_stroke(g, "bo", 5, "1,1,2,2", true);
+   practice_state(g, "game_over", 2, "bo");
+   CHECK(game_can_draw(g));
+   game_strokes(g, &n);
+   CHECK(n == 1); // the last drawing stays
+   game_pen_down(g, 10, 10, -1, 5000);
+   game_pen_up(g, 5001);
+   clear_sent();
+   game_clear(g);
+   CHECK(strokes_by(g, "me") == 0 && strokes_by(g, "bo") == 1);
+   CHECK(string_eq(last_sent().event, S("clear")));
+   game_free(g);
+}
+
+// Back in our seat after a restart, new strokes don't reuse our old ids.
+static void test_practice_rejoin_ids(void) {
+   game *g = game_new(fake_send, NULL);
+   clear_sent();
+   game_connected(g, S("abcd"), S("Ana"), S("tok"), 1000);
+   feed(g,
+        "[\"1\",\"1\",\"room:abcd\",\"phx_reply\",{\"status\":\"ok\","
+        "\"response\":{\"you\":\"me\",\"token\":\"tok\",\"state\":" LOBBY_STATE
+        ",\"strokes\":[{\"by\":\"me\",\"id\":7,\"pts\":[1,2],\"c\":1,"
+        "\"s\":2,\"end\":true},{\"by\":\"bo\",\"id\":40,\"pts\":[1,2],"
+        "\"c\":1,\"s\":2,\"end\":true}]}}]",
+        1000);
+   game_pen_down(g, 10, 10, -1, 2000);
+   game_pen_up(g, 2001);
+   CHECK(json_get(last_sent().payload, S("id"))->number == 8);
+   game_free(g);
+}
+
+// A long doodling session: removed strokes are compacted away and the live
+// ones survive the move intact.
+static void test_practice_compaction(void) {
+   game *g = joined_game();
+   remote_stroke(g, "bo", 1, "11,12,13,14", true);
+   char pts[16 * 200];
+   usize len = 0;
+   for (int i = 0; i < 200; i++)
+      len += (usize)snprintf(pts + len, sizeof(pts) - len, "%s%d,%d",
+                             i ? "," : "", i, i);
+   char frame[sizeof(pts) + 256];
+   for (int k = 0; k < 400; k++) {
+      snprintf(frame, sizeof(frame),
+               "[\"1\",null,\"room:abcd\",\"stroke\",{\"by\":\"cy\","
+               "\"id\":%d,\"pts\":[%s],\"c\":2,\"s\":3,\"end\":true}]",
+               k + 2, pts);
+      feed(g, frame, 2000);
+      snprintf(frame, sizeof(frame),
+               "[\"1\",null,\"room:abcd\",\"undo\",{\"id\":%d,\"by\":"
+               "\"cy\"}]",
+               k + 2);
+      feed(g, frame, 2000);
+   }
+   usize n;
+   const game_stroke *s = game_strokes(g, &n);
+   CHECK(n == 1);
+   CHECK(n == 1 && string_eq(s[0].by, S("bo")) && s[0].id == 1);
+   CHECK(n == 1 && s[0].pts.len == 2 && s[0].pts.items[1].y == 14);
+   game_free(g);
+}
+
 static void test_chat_overflow(void) {
    game *g = joined_game();
    char buf[256];
@@ -426,6 +623,9 @@ int main(void) {
    test_join_error();
    test_drawer_turn();
    test_guesser();
+   test_practice();
+   test_practice_rejoin_ids();
+   test_practice_compaction();
    test_chat_overflow();
    test_leave();
    test_heartbeat();

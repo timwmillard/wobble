@@ -25,9 +25,9 @@
 #include <raven/raven_emscripten.h>
 #endif
 
+#include "art_svg.h"
 #include "canvas.h"
 #include "game.h"
-#include "art_svg.h"
 #include "gui_xml.h"
 #include "link.h"
 #include "transport.h"
@@ -282,8 +282,9 @@ static void refresh_phase(void) {
    set_text(round_label, text);
 
    if (st->phase == GAME_DRAWING && st->word.len) {
-      snprintf(text, sizeof(text), "%s" STR_FMT,
-               game_is_drawer(g) ? "Draw: " : "You got it: ", STR_ARG(st->word));
+      snprintf(
+          text, sizeof(text), "%s" STR_FMT,
+          game_is_drawer(g) ? "Draw: " : "You got it: ", STR_ARG(st->word));
       set_text(word_label, text);
    } else if (st->phase == GAME_DRAWING) {
       spaced(text, sizeof(text), st->hint);
@@ -305,9 +306,9 @@ static void refresh_phase(void) {
          snprintf(text, sizeof(text), "%d player%s here. Start when ready.",
                   connected, connected == 1 ? "" : "s");
       else
-         snprintf(text, sizeof(text), "%d player%s here. Waiting for " STR_FMT ".",
-                  connected, connected == 1 ? "" : "s",
-                  STR_ARG(player_name_of(st->host)));
+         snprintf(text, sizeof(text),
+                  "%d player%s here. Waiting for " STR_FMT ".", connected,
+                  connected == 1 ? "" : "s", STR_ARG(player_name_of(st->host)));
       set_text(lobby_text, text);
       set_text(invite_label, invite_url);
       show(start_button, game_is_host(g));
@@ -337,10 +338,12 @@ static void refresh_phase(void) {
       refresh_ranking();
 
    show(tools, game_can_draw(g));
-   Rtext_input_set_placeholder(guess_input, game_is_drawer(g) &&
-                                                    st->phase == GAME_DRAWING
-                                                ? "Chat (no spoilers!)"
-                                                : "Type your guess...");
+   const char *placeholder = "Type your guess...";
+   if (game_is_practice(g))
+      placeholder = "Chat...";
+   else if (game_is_drawer(g) && st->phase == GAME_DRAWING)
+      placeholder = "Chat (no spoilers!)";
+   Rtext_input_set_placeholder(guess_input, placeholder);
 }
 
 #ifdef __EMSCRIPTEN__
@@ -409,7 +412,7 @@ static void maybe_capture(u64 now) {
       if (!game_get_state(g)->has_choices)
          return;
    } else if (after && strcmp(after, "drawing") == 0) {
-      if (!game_can_draw(g)) {
+      if (!game_can_draw(g) || game_is_practice(g)) {
          at = 0;
          return;
       }
@@ -739,10 +742,10 @@ int main(int argc, char *argv[]) {
    canvas_init(find("canvas"), find("palette"), g, now_ms);
 
    const char *env_server = getenv("WOBBLE_SERVER");
-   Rtext_input_set_text(server_input,
-                        arg_server               ? arg_server
-                        : env_server && *env_server ? env_server
-                                                    : WOBBLE_SERVER);
+   Rtext_input_set_text(server_input, arg_server ? arg_server
+                                      : env_server && *env_server
+                                          ? env_server
+                                          : WOBBLE_SERVER);
 #ifdef __EMSCRIPTEN__
    // The page's own host is the server; there is nothing to choose.
    show(server_toggle, false);

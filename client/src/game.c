@@ -13,6 +13,11 @@
 // The smallest pen movement worth sending, in canvas units.
 #define MIN_POINT_DIST 1.5f
 
+// Removed strokes leave their points dead in the stroke arena until it is
+// reset; the lobby canvas may never be, so copy the live strokes into the
+// spare arena once this many points are dead (and outnumber the live ones).
+#define COMPACT_DEAD_POINTS 65536
+
 const u32 game_palette[GAME_PALETTE_SIZE] = {
     0xFFFFFF, 0x000000, 0x7F7F7F, 0xC1C1C1, 0xEF130B, 0xFF7100,
     0xFFE400, 0x00CC00, 0x00B2FF, 0x231FD3, 0xA300BA, 0xD37CAA,
@@ -39,8 +44,10 @@ struct game {
    int snap_cur; // the arena st's snapshot strings are in
    arena errors;
 
-   arena scratch; // one incoming frame at a time
-   arena stroke_arena;
+   arena scratch;         // one incoming frame at a time
+   arena stroke_arena[2]; // strokes live in one; the other is for compacting
+   int stroke_cur;
+   usize dead_points;
    stroke_list strokes;
 
    game_chat_line chat[GAME_CHAT_LINES];
@@ -56,6 +63,7 @@ struct game {
    // The pen.
    int brush_color, brush_size;
    bool pen_down;
+   u32 pen_id; // our stroke in progress, while pen_down
    u32 next_stroke_id;
    usize sent; // points of the stroke in progress already sent
    u64 last_chunk_ms;
@@ -121,27 +129,67 @@ static game_chat_kind chat_kind(string kind) {
 /* Strokes */
 
 static void reset_strokes(game *g) {
-   arena_reset(&g->stroke_arena);
-   g->strokes = (stroke_list)list_init(&g->stroke_arena);
+   arena_reset(&g->stroke_arena[0]);
+   arena_reset(&g->stroke_arena[1]);
+   g->strokes = (stroke_list)list_init(&g->stroke_arena[g->stroke_cur]);
+   g->dead_points = 0;
    g->pen_down = false;
    g->dirty |= GAME_DIRTY_CANVAS;
 }
 
-static game_stroke *find_open_stroke(game *g, u32 id) {
+static void compact_strokes(game *g) {
+   arena *from = &g->stroke_arena[g->stroke_cur];
+   arena *to = &g->stroke_arena[!g->stroke_cur];
+   arena_reset(to);
+   stroke_list out = list_init(to);
+   list_reserve(&out, g->strokes.len);
+   for (usize i = 0; i < g->strokes.len; i++) {
+      game_stroke s = g->strokes.items[i];
+      game_point_list pts = list_init(to);
+      list_reserve(&pts, s.pts.len);
+      if (s.pts.len)
+         memcpy(pts.items, s.pts.items, s.pts.len * sizeof(*pts.items));
+      pts.len = s.pts.len;
+      s.pts = pts;
+      s.by = string_dup(to, s.by);
+      list_append(&out, s);
+   }
+   g->strokes = out;
+   arena_reset(from);
+   g->stroke_cur = !g->stroke_cur;
+   g->dead_points = 0;
+}
+
+static bool stroke_is(const game_stroke *s, string by, u32 id) {
+   return s->id == id && string_eq(s->by, by);
+}
+
+static game_stroke *find_open_stroke(game *g, string by, u32 id) {
    for (usize i = g->strokes.len; i-- > 0;) {
-      if (g->strokes.items[i].id == id && !g->strokes.items[i].done)
-         return &g->strokes.items[i];
+      game_stroke *s = &g->strokes.items[i];
+      if (!s->done && stroke_is(s, by, id))
+         return s;
    }
    return NULL;
 }
 
-static game_stroke *new_stroke(game *g, u32 id, int color, int size) {
+// Our stroke in progress, or NULL when the pen is up or it was removed.
+static game_stroke *pen_stroke(game *g) {
+   return g->pen_down ? find_open_stroke(g, g->st.you, g->pen_id) : NULL;
+}
+
+static game_stroke *new_stroke(game *g, string by, u32 id, int color,
+                               int size) {
+   arena *a = &g->stroke_arena[g->stroke_cur];
    game_stroke s = {
+       .by = string_dup(a, by),
        .id = id,
        .color = (u8)(color & 15),
-       .size = (u8)(size < 1 ? 1 : size > 40 ? 40 : size),
+       .size = (u8)(size < 1    ? 1
+                    : size > 40 ? 40
+                                : size),
    };
-   s.pts = (game_point_list)list_init(&g->stroke_arena);
+   s.pts = (game_point_list)list_init(a);
    list_append(&g->strokes, s);
    return &g->strokes.items[g->strokes.len - 1];
 }
@@ -150,15 +198,18 @@ static i16 clamp_i16(int v, int lo, int hi) {
    return (i16)(v < lo ? lo : v > hi ? hi : v);
 }
 
-// One chunk from the server: {id, pts:[x,y,...], c, s, end, p?}.
+// One chunk from the server: {by, id, pts:[x,y,...], c, s, end, p?}. Each
+// author's chunks join on to that author's open stroke of the same id, so
+// several players can be mid-stroke at once.
 static void apply_stroke(game *g, json *p) {
    json *pts = json_get(p, S("pts"));
    if (!pts || pts->type != JSON_ARRAY)
       return;
+   string by = json_str(json_get(p, S("by")));
    u32 id = (u32)json_int(json_get(p, S("id")), 0);
-   game_stroke *s = find_open_stroke(g, id);
+   game_stroke *s = find_open_stroke(g, by, id);
    if (!s)
-      s = new_stroke(g, id, json_int(json_get(p, S("c")), 1),
+      s = new_stroke(g, by, id, json_int(json_get(p, S("c")), 1),
                      json_int(json_get(p, S("s")), 4));
    json *pressure = json_get(p, S("p"));
    for (usize i = 0; i + 1 < pts->len; i += 2) {
@@ -166,7 +217,9 @@ static void apply_stroke(game *g, json *p) {
       game_point pt = {
           clamp_i16(json_int(json_at(pts, i), 0), 0, GAME_CANVAS_W),
           clamp_i16(json_int(json_at(pts, i + 1), 0), 0, GAME_CANVAS_H),
-          (u8)(pv < 0 ? 0 : pv > 255 ? 255 : pv),
+          (u8)(pv < 0     ? 0
+               : pv > 255 ? 255
+                          : pv),
       };
       list_append(&s->pts, pt);
    }
@@ -174,13 +227,28 @@ static void apply_stroke(game *g, json *p) {
    g->dirty |= GAME_DIRTY_CANVAS;
 }
 
-static void remove_stroke(game *g, u32 id) {
+// Removes by's strokes: the one with id, or all of them when all_ids.
+static void remove_strokes(game *g, string by, u32 id, bool all_ids) {
+   bool pen_gone =
+       g->pen_down && string_eq(by, g->st.you) && (all_ids || id == g->pen_id);
    usize out = 0;
    for (usize i = 0; i < g->strokes.len; i++) {
-      if (g->strokes.items[i].id != id)
-         g->strokes.items[out++] = g->strokes.items[i];
+      game_stroke *s = &g->strokes.items[i];
+      if (string_eq(s->by, by) && (all_ids || s->id == id))
+         g->dead_points += s->pts.len;
+      else
+         g->strokes.items[out++] = *s;
    }
    g->strokes.len = out;
+   if (pen_gone)
+      g->pen_down = false;
+   if (g->dead_points >= COMPACT_DEAD_POINTS) {
+      usize live = 0;
+      for (usize i = 0; i < g->strokes.len; i++)
+         live += g->strokes.items[i].pts.len;
+      if (g->dead_points > live)
+         compact_strokes(g);
+   }
    g->dirty |= GAME_DIRTY_CANVAS;
 }
 
@@ -225,8 +293,8 @@ static void send_join(game *g, u64 now_ms) {
 
    // The join's ref doubles as the join_ref of everything on this channel.
    // A rejoin adds a few bytes to the session arena; there are few of them.
-   g->join_ref = stringf(&g->session, "%llu",
-                         (unsigned long long)(g->next_ref + 1));
+   g->join_ref =
+       stringf(&g->session, "%llu", (unsigned long long)(g->next_ref + 1));
    send_frame(g, g->topic, S("phx_join"), sb_string(&p), true);
    arena_temp_end(t);
 
@@ -237,10 +305,7 @@ static void send_join(game *g, u64 now_ms) {
 
 // The points of the stroke in progress not yet sent, plus the last sent one so
 // each chunk joins on to the one before.
-static void send_chunk(game *g, bool end, u64 now_ms) {
-   if (g->strokes.len == 0)
-      return;
-   game_stroke *s = &g->strokes.items[g->strokes.len - 1];
+static void send_chunk(game *g, game_stroke *s, bool end, u64 now_ms) {
    usize from = g->sent > 0 ? g->sent - 1 : 0;
    if (s->pts.len == 0 || (from + 1 >= s->pts.len && g->sent && !end))
       return;
@@ -374,6 +439,12 @@ static void on_join_reply(game *g, const phx_msg *m, u64 now_ms) {
    json *strokes = json_get(r, S("strokes"));
    for (usize i = 0; strokes && i < strokes->len; i++)
       apply_stroke(g, json_at(strokes, i));
+   // Back in our seat after a restart: carry on past our own strokes' ids.
+   for (usize i = 0; i < g->strokes.len; i++) {
+      const game_stroke *s = &g->strokes.items[i];
+      if (string_eq(s->by, g->st.you) && s->id > g->next_stroke_id)
+         g->next_stroke_id = s->id;
+   }
 }
 
 static void handle(game *g, const phx_msg *m, u64 now_ms) {
@@ -384,8 +455,7 @@ static void handle(game *g, const phx_msg *m, u64 now_ms) {
       if (string_eq(g->join_ref, m->ref) && g->st.phase == GAME_JOINING) {
          on_join_reply(g, m, now_ms);
       } else if (!string_eq(phx_reply_status(m), S("ok"))) {
-         string reason =
-             json_str(json_get(phx_reply_response(m), S("reason")));
+         string reason = json_str(json_get(phx_reply_response(m), S("reason")));
          if (reason.len)
             set_error(g, reason);
       }
@@ -411,9 +481,16 @@ static void handle(game *g, const phx_msg *m, u64 now_ms) {
    } else if (string_eq(ev, S("stroke"))) {
       apply_stroke(g, p);
    } else if (string_eq(ev, S("undo"))) {
-      remove_stroke(g, (u32)json_int(json_get(p, S("id")), -1));
+      remove_strokes(g, json_str(json_get(p, S("by"))),
+                     (u32)json_int(json_get(p, S("id")), -1), false);
    } else if (string_eq(ev, S("clear"))) {
-      reset_strokes(g);
+      // With a "by", only that player's strokes (a guest clearing their own
+      // doodles); otherwise the whole canvas.
+      string by = json_str(json_get(p, S("by")));
+      if (by.len)
+         remove_strokes(g, by, 0, true);
+      else
+         reset_strokes(g);
    } else if (string_eq(ev, S("chat"))) {
       add_chat(g, chat_kind(json_str(json_get(p, S("kind")))),
                json_str(json_get(p, S("from"))),
@@ -438,7 +515,7 @@ game *game_new(game_send_fn send, void *user_data) {
       return NULL;
    g->send = send;
    g->user_data = user_data;
-   g->strokes = (stroke_list)list_init(&g->stroke_arena);
+   g->strokes = (stroke_list)list_init(&g->stroke_arena[0]);
    game_state *st = &g->st;
    st->you = st->token = st->host = st->drawer = st->hint = st->word =
        st->error = S("");
@@ -458,7 +535,8 @@ void game_free(game *g) {
    arena_release(&g->snap[1]);
    arena_release(&g->errors);
    arena_release(&g->scratch);
-   arena_release(&g->stroke_arena);
+   arena_release(&g->stroke_arena[0]);
+   arena_release(&g->stroke_arena[1]);
    free(g);
 }
 
@@ -510,8 +588,9 @@ void game_tick(game *g, u64 now_ms) {
       send_frame(g, S("phoenix"), S("heartbeat"), S("{}"), false);
       g->last_heartbeat_ms = now_ms;
    }
-   if (g->pen_down && now_ms - g->last_chunk_ms >= GAME_CHUNK_MS)
-      send_chunk(g, false, now_ms);
+   game_stroke *s = pen_stroke(g);
+   if (s && now_ms - g->last_chunk_ms >= GAME_CHUNK_MS)
+      send_chunk(g, s, false, now_ms);
 }
 
 void game_start(game *g) {
@@ -564,8 +643,9 @@ void game_pen_down(game *g, float x, float y, float pressure, u64 now_ms) {
       return;
    if (g->pen_down)
       game_pen_up(g, now_ms);
+   g->pen_id = ++g->next_stroke_id;
    game_stroke *s =
-       new_stroke(g, ++g->next_stroke_id, g->brush_color, g->brush_size);
+       new_stroke(g, g->st.you, g->pen_id, g->brush_color, g->brush_size);
    list_append(&s->pts, make_point(x, y, pressure));
    g->pen_down = true;
    g->sent = 0;
@@ -574,9 +654,9 @@ void game_pen_down(game *g, float x, float y, float pressure, u64 now_ms) {
 }
 
 void game_pen_move(game *g, float x, float y, float pressure, u64 now_ms) {
-   if (!g->pen_down || !game_can_draw(g) || g->strokes.len == 0)
+   game_stroke *s = pen_stroke(g);
+   if (!s || !game_can_draw(g))
       return;
-   game_stroke *s = &g->strokes.items[g->strokes.len - 1];
    game_point last = s->pts.items[s->pts.len - 1];
    game_point pt = make_point(x, y, pressure);
    float dx = (float)(pt.x - last.x), dy = (float)(pt.y - last.y);
@@ -585,35 +665,42 @@ void game_pen_move(game *g, float x, float y, float pressure, u64 now_ms) {
    list_append(&s->pts, pt);
    g->dirty |= GAME_DIRTY_CANVAS;
    if (s->pts.len - g->sent >= GAME_CHUNK_POINTS)
-      send_chunk(g, false, now_ms);
+      send_chunk(g, s, false, now_ms);
 }
 
 void game_pen_up(game *g, u64 now_ms) {
-   if (!g->pen_down)
-      return;
+   game_stroke *s = pen_stroke(g);
    g->pen_down = false;
-   if (g->strokes.len == 0)
+   if (!s)
       return;
-   g->strokes.items[g->strokes.len - 1].done = true;
+   s->done = true;
    if (game_can_draw(g))
-      send_chunk(g, true, now_ms);
+      send_chunk(g, s, true, now_ms);
 }
 
 void game_undo(game *g) {
-   if (!game_can_draw(g) || g->pen_down || g->strokes.len == 0)
+   if (!game_can_draw(g) || g->pen_down)
       return;
-   u32 id = g->strokes.items[g->strokes.len - 1].id;
-   g->strokes.len--;
-   g->dirty |= GAME_DIRTY_CANVAS;
-   arena_temp t = arena_temp_begin(&g->scratch);
-   push(g, S("undo"), stringf(&g->scratch, "{\"id\":%u}", (unsigned)id));
-   arena_temp_end(t);
+   for (usize i = g->strokes.len; i-- > 0;) {
+      const game_stroke *s = &g->strokes.items[i];
+      if (!string_eq(s->by, g->st.you))
+         continue;
+      u32 id = s->id;
+      remove_strokes(g, g->st.you, id, false);
+      arena_temp t = arena_temp_begin(&g->scratch);
+      push(g, S("undo"), stringf(&g->scratch, "{\"id\":%u}", (unsigned)id));
+      arena_temp_end(t);
+      return;
+   }
 }
 
 void game_clear(game *g) {
    if (!game_can_draw(g))
       return;
-   reset_strokes(g);
+   if (game_is_practice(g) && !game_is_host(g))
+      remove_strokes(g, g->st.you, 0, true);
+   else
+      reset_strokes(g);
    push(g, S("clear"), S("{}"));
 }
 
@@ -647,7 +734,13 @@ bool game_is_drawer(const game *g) {
    return g->st.you.len && string_eq(g->st.drawer, g->st.you);
 }
 
+bool game_is_practice(const game *g) {
+   return g->st.phase == GAME_LOBBY || g->st.phase == GAME_OVER;
+}
+
 bool game_can_draw(const game *g) {
+   if (game_is_practice(g))
+      return g->st.you.len > 0;
    return g->st.phase == GAME_DRAWING && game_is_drawer(g);
 }
 

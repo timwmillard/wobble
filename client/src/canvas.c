@@ -2,8 +2,8 @@
 
 #include <math.h>
 
-#define SWATCH 28.0f
-#define SWATCH_GAP 6.0f
+#define SWATCH         28.0f
+#define SWATCH_GAP     6.0f
 #define PALETTE_HEIGHT 44.0f
 
 static const int brush_sizes[] = {3, 8, 16, 30};
@@ -53,9 +53,8 @@ static void paint_segment(RPainter *painter, const game_stroke *s, usize k,
    game_point p1 = s->pts.items[k - 1];
    game_point p2 = s->pts.items[k];
    game_point p3 = s->pts.items[k + 1 < s->pts.len ? k + 1 : k];
-   float x0 = (float)p0.x, y0 = (float)p0.y, x1 = (float)p1.x,
-         y1 = (float)p1.y, x2 = (float)p2.x, y2 = (float)p2.y,
-         x3 = (float)p3.x, y3 = (float)p3.y;
+   float x0 = (float)p0.x, y0 = (float)p0.y, x1 = (float)p1.x, y1 = (float)p1.y,
+         x2 = (float)p2.x, y2 = (float)p2.y, x3 = (float)p3.x, y3 = (float)p3.y;
    float w1 = stroke_width(s, p1, f.scale), w2 = stroke_width(s, p2, f.scale);
    float dx = (x2 - x1) * f.scale, dy = (y2 - y1) * f.scale;
    int steps = (int)(sqrtf(dx * dx + dy * dy) / 2.0f);
@@ -115,8 +114,10 @@ static void paint_canvas(Rid widget, RPainter *painter, float width,
 
    if (count == 0 && game_can_draw(c.g))
       Rdraw_text(painter, R_INVALID_ID, 18.0f * (f.scale > 1 ? 1 : f.scale),
-                 f.x + 18.0f, f.y + 18.0f, "Draw here", 0.6f, 0.6f, 0.6f,
-                 1.0f);
+                 f.x + 18.0f, f.y + 18.0f,
+                 game_is_practice(c.g) ? "Doodle here - everyone can draw"
+                                       : "Draw here",
+                 0.6f, 0.6f, 0.6f, 1.0f);
 }
 
 static void to_game(float lx, float ly, float *gx, float *gy) {
@@ -206,8 +207,8 @@ static void paint_palette(Rid widget, RPainter *painter, float width,
                     0.6f, 1.0f, 1.0f);
       Rdraw_rect(painter, x, y, SWATCH, SWATCH, 7.0f, r, g, b, 1.0f);
       if (i == 0) // the eraser: white with a cross
-         Rdraw_line(painter, x + 8, y + 8, x + SWATCH - 8, y + SWATCH - 8,
-                    2.0f, 0.6f, 0.6f, 0.6f, 1.0f);
+         Rdraw_line(painter, x + 8, y + 8, x + SWATCH - 8, y + SWATCH - 8, 2.0f,
+                    0.6f, 0.6f, 0.6f, 1.0f);
    }
    float r, g, b;
    rgb(game_palette[c.color == 0 ? 1 : c.color], &r, &g, &b);
@@ -216,8 +217,7 @@ static void paint_palette(Rid widget, RPainter *painter, float width,
       if (i == c.size_index)
          Rdraw_rect(painter, x - 3, y - 3, SWATCH + 6, SWATCH + 6, 9.0f, 0.35f,
                     0.6f, 1.0f, 1.0f);
-      Rdraw_rect(painter, x, y, SWATCH, SWATCH, 7.0f, 0.2f, 0.22f, 0.27f,
-                 1.0f);
+      Rdraw_rect(painter, x, y, SWATCH, SWATCH, 7.0f, 0.2f, 0.22f, 0.27f, 1.0f);
       float radius = 2.0f + (float)i * 3.2f;
       Rdraw_circle(painter, x + SWATCH * 0.5f, y + SWATCH * 0.5f, radius, r, g,
                    b, 1.0f);

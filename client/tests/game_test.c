@@ -421,6 +421,85 @@ static void test_string_lifetimes(void) {
    game_free(g);
 }
 
+static void test_practice(void) {
+   game *g = game_new(fake_send, NULL);
+   clear_sent();
+   CHECK(!game_can_draw(g));
+   game_practice_start(g);
+   CHECK(game_get_state(g)->phase == GAME_PRACTICE);
+   CHECK(game_can_draw(g));
+
+   game_set_brush(g, 4, 12);
+   game_pen_down(g, 10, 10, -1, 0);
+   for (int i = 1; i <= 100; i++)
+      game_pen_move(g, 10.0f + (float)i * 3, 10, -1, (u64)i);
+   game_tick(g, 200);
+   game_pen_up(g, 200);
+   game_pen_down(g, 50, 50, -1, 300);
+   game_pen_move(g, 90, 90, -1, 310);
+   game_pen_up(g, 320);
+   usize n;
+   const game_stroke *s = game_strokes(g, &n);
+   CHECK(n == 2 && s[0].color == 4 && s[0].size == 12 && s[0].done);
+   CHECK(s[0].pts.len == 101);
+
+   game_undo(g);
+   game_strokes(g, &n);
+   CHECK(n == 1);
+   game_clear(g);
+   game_strokes(g, &n);
+   CHECK(n == 0);
+
+   // No heartbeat, join or drawing frames: there is no server.
+   game_tick(g, GAME_HEARTBEAT_MS * 3);
+   game_guess(g, "hello");
+   game_start(g);
+   CHECK(sent_count == 0);
+
+   // A late frame from a room left behind doesn't land on the canvas.
+   feed(g,
+        "[\"1\",null,\"room:abcd\",\"stroke\",{\"id\":9,\"pts\":[1,2,3,4],"
+        "\"c\":1,\"s\":4,\"end\":true}]",
+        400);
+   game_strokes(g, &n);
+   CHECK(n == 0);
+
+   // Leaving ends practice and forgets the drawing.
+   game_pen_down(g, 5, 5, -1, 500);
+   game_pen_up(g, 510);
+   game_dirty(g);
+   game_leave(g);
+   CHECK(game_get_state(g)->phase == GAME_OFFLINE);
+   CHECK(!game_can_draw(g));
+   game_strokes(g, &n);
+   CHECK(n == 0);
+   CHECK(game_dirty(g) & GAME_DIRTY_CANVAS);
+   CHECK(sent_count == 0);
+   game_free(g);
+}
+
+// Practice after a real room: the room's drawing is gone and nothing more
+// is sent to it.
+static void test_practice_after_room(void) {
+   game *g = joined_game();
+   feed(g,
+        "[\"1\",null,\"room:abcd\",\"stroke\",{\"id\":9,\"pts\":[1,2,3,4],"
+        "\"c\":1,\"s\":4,\"end\":true}]",
+        0);
+   game_leave(g);
+   game_practice_start(g);
+   usize n;
+   game_strokes(g, &n);
+   CHECK(n == 0);
+   game_pen_down(g, 5, 5, -1, 1000);
+   game_pen_move(g, 50, 50, -1, 1100);
+   game_tick(g, 1000 + GAME_HEARTBEAT_MS);
+   game_pen_up(g, 1200);
+   game_clear(g);
+   CHECK(sent_count == 0);
+   game_free(g);
+}
+
 int main(void) {
    test_join();
    test_join_error();
@@ -431,6 +510,8 @@ int main(void) {
    test_heartbeat();
    test_rejoin_after_channel_error();
    test_string_lifetimes();
+   test_practice();
+   test_practice_after_room();
    clear_sent();
    arena_release(&test_arena);
    if (failures) {

@@ -1,6 +1,7 @@
 /* wobble — the client: Raven UI over the game core.
  *
  *    wobble [--server ws://host:4000] [--room abcd] [--name Ana] [link]
+ *    wobble --practice
  *
  * The room field (and --room, or a bare argument) takes a code or a room
  * link, https://host/r/<code>, which names its own server. A bare code joins
@@ -10,6 +11,8 @@
  * In the browser web/shell.html passes the same arguments from the page:
  * the server is the page's own host, the room is /r/<code> (or ?room=), and
  * ?name= fills the name.
+ *
+ * --practice opens the drawing screen offline, to doodle alone.
  *
  * With a room and a name it joins straight away. Natively the network runs
  * on webc's threads; every transport callback is copied and handed to the UI
@@ -38,7 +41,8 @@
 
 static Rid window;
 static Rid connect_screen, game_screen, name_input, room_input, server_input;
-static Rid join_button, connect_error, server_box, server_toggle;
+static Rid join_button, practice_button, connect_error, server_box;
+static Rid server_toggle, side_panel, side_sep, leave_button;
 static Rid copy_link_button, copy_invite_button, invite_label;
 static Rid round_label, word_label, timer_label;
 static Rid lobby_panel, lobby_text, start_button;
@@ -258,12 +262,24 @@ static void refresh_ranking(void) {
    }
 }
 
+// Practice: just the canvas and the tools.
+static void refresh_practice(void) {
+   set_text(round_label, "Practice");
+   set_text(word_label, "");
+   show(lobby_panel, false);
+   show(choose_panel, false);
+   show(reveal_panel, false);
+   show(over_panel, false);
+   show(tools, true);
+}
+
 static void refresh_phase(void) {
    const game_state *st = game_get_state(g);
    bool in_room = st->phase >= GAME_LOBBY;
+   bool practising = st->phase == GAME_PRACTICE;
    static bool was_in_room;
-   show(connect_screen, !in_room);
-   show(game_screen, in_room);
+   show(connect_screen, !in_room && !practising);
+   show(game_screen, in_room || practising);
    // The focused field just went away with the connect screen; type to chat.
    if (in_room && !was_in_room)
       Rwidget_focus(guess_input);
@@ -271,6 +287,14 @@ static void refresh_phase(void) {
    Rwidget_set_enabled(join_button, st->phase == GAME_OFFLINE);
    Rbutton_set_text(join_button,
                     st->phase == GAME_OFFLINE ? "Join room" : "Joining...");
+   Rwidget_set_enabled(practice_button, st->phase == GAME_OFFLINE);
+   // Room-only parts of the game screen.
+   show(copy_link_button, !practising);
+   show(side_panel, !practising);
+   show(side_sep, !practising);
+   Rbutton_set_text(leave_button, practising ? "Back" : "Leave");
+   if (practising)
+      refresh_practice();
    if (!in_room)
       return;
 
@@ -576,6 +600,24 @@ static void on_copy_link(Rid sender, const char *action, void *user_data) {
    copied_until = now_ms() + 2000;
 }
 
+// Practice needs no server: drop any connection still being made.
+static void practice(void) {
+   transport_free(conn);
+   conn = NULL;
+   conn_gen++;
+   game_practice_start(g);
+   refresh(game_dirty(g));
+   clear_room_from_url();
+}
+
+static void on_practice(Rid sender, const char *action, void *user_data) {
+   (void)sender;
+   (void)action;
+   (void)user_data;
+   if (game_get_state(g)->phase == GAME_OFFLINE)
+      practice();
+}
+
 static void on_toggle_server(Rid sender, const char *action, void *user_data) {
    (void)sender;
    (void)action;
@@ -659,9 +701,12 @@ static void web_shutdown(void) {
 
 int main(int argc, char *argv[]) {
    const char *arg_server = NULL, *arg_room = NULL, *arg_name = NULL;
+   bool arg_practice = false;
    for (int i = 1; i < argc; i++) {
       bool has_value = i + 1 < argc;
-      if (strcmp(argv[i], "--server") == 0 && has_value)
+      if (strcmp(argv[i], "--practice") == 0)
+         arg_practice = true;
+      else if (strcmp(argv[i], "--server") == 0 && has_value)
          arg_server = argv[++i];
       else if (strcmp(argv[i], "--room") == 0 && has_value)
          arg_room = argv[++i];
@@ -683,6 +728,7 @@ int main(int argc, char *argv[]) {
 
    Raction_bind("ui.join", on_join, NULL);
    Raction_bind("ui.leave", on_leave, NULL);
+   Raction_bind("ui.practice", on_practice, NULL);
    Raction_bind("ui.copy_link", on_copy_link, NULL);
    Raction_bind("ui.toggle_server", on_toggle_server, NULL);
    Raction_bind("ui.start", on_start, NULL);
@@ -705,6 +751,10 @@ int main(int argc, char *argv[]) {
    room_input = find("room");
    server_input = find("server");
    join_button = find("join");
+   practice_button = find("practice");
+   side_panel = find("side");
+   side_sep = find("side_sep");
+   leave_button = find("leave");
    connect_error = find("connect_error");
    server_box = find("server_box");
    server_toggle = find("server_toggle");
@@ -756,7 +806,9 @@ int main(int argc, char *argv[]) {
    Rwidget_focus(name_input);
 
    Rtimer_create(1.0 / 30.0, R_TRUE, on_tick, NULL);
-   if (arg_room && arg_name)
+   if (arg_practice)
+      practice();
+   else if (arg_room && arg_name)
       join();
 
 #ifdef __EMSCRIPTEN__

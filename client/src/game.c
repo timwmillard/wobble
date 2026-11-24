@@ -497,8 +497,16 @@ void game_leave(game *g) {
    g->dirty |= GAME_DIRTY_PHASE | GAME_DIRTY_PLAYERS | GAME_DIRTY_CHAT;
 }
 
+void game_practice_start(game *g) {
+   game_leave(g);
+   g->st.phase = GAME_PRACTICE;
+}
+
 void game_on_message(game *g, const char *text, usize len, u64 now_ms) {
    phx_msg m;
+   // A late frame from a room we left must not draw on the practice canvas.
+   if (g->st.phase == GAME_PRACTICE)
+      return;
    if (phx_parse(&g->scratch, string_view_bytes(text, len), &m))
       handle(g, &m, now_ms);
    arena_reset(&g->scratch);
@@ -648,6 +656,8 @@ bool game_is_drawer(const game *g) {
 }
 
 bool game_can_draw(const game *g) {
+   if (g->st.phase == GAME_PRACTICE)
+      return true;
    return g->st.phase == GAME_DRAWING && game_is_drawer(g);
 }
 

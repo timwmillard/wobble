@@ -1,6 +1,6 @@
 const char logo_svg_data[] =
 	"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"203\" height=\"160\" viewBox=\"175 205 760 600\">\n"
-	"  <!-- The app icon's art (../macos/icon.svg) without its tile, for the join\n"
+	"  <!-- The app icon's art (../../release/macos/icon.svg) without its tile, for the join\n"
 	"       screen. Raven draws no filters, so the shadows are plain translucent\n"
 	"       shapes. -->\n"
 	"  <defs>\n"
@@ -49,7 +49,7 @@ const char logo_svg_data[] =
 	"  </g>\n"
 	"</svg>\n"
 	"";
-const unsigned int logo_svg_len = 2420;
+const unsigned int logo_svg_len = 2431;
 const char doodles_svg_data[] =
 	"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"1180\" height=\"760\" viewBox=\"0 0 1180 760\">\n"
 	"  <!-- Faded doodles behind the join card, shown at this size and centred\n"

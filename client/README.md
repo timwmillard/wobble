@@ -21,7 +21,7 @@ packaged by CPack into `build-release/Wobble-macOS.dmg`.
 `make windows` cross-compiles from macOS or Linux with MinGW-w64
 (`brew install mingw-w64`, or `apt install gcc-mingw-w64-x86-64`;
 toolchain in `cmake/mingw-w64.cmake`) into `build-windows/Wobble-Windows.zip`:
-one static `wobble.exe` with its icon (`src/windows/Wobble.ico`, made from
+one static `wobble.exe` with its icon (`release/windows/Wobble.ico`, made from
 the macOS icon SVGs). Raven needs the Vulkan headers for Windows: pass
 `VULKAN_HEADERS=<dir containing vulkan/vulkan.h>`, or Raven downloads them.
 On Windows itself, plain `cmake -B build && cmake --build build` with Visual

@@ -36,6 +36,10 @@ const char gui_xml_data[] =
 	"                  Metric.ControlHeight=\"48\" Slot.Padding=\"0,10,0,0\">\n"
 	"            <Label Text=\"Join room\" TextSize=\"20\" Slot.HAlign=\"Center\" Slot.VAlign=\"Center\"/>\n"
 	"          </Button>\n"
+	"          <!-- Draw alone, with no server -->\n"
+	"          <Button Name=\"practice\" OnClicked=\"ui.practice\" Metric.ControlHeight=\"40\">\n"
+	"            <Label Text=\"Practice drawing\" TextSize=\"18\" Slot.HAlign=\"Center\" Slot.VAlign=\"Center\"/>\n"
+	"          </Button>\n"
 	"          <Label Name=\"connect_error\" Text=\"\" Color=\"#FF6B6B\" Wrap=\"true\" MaxWidth=\"340\"\n"
 	"                 TextSize=\"18\"/>\n"
 	"          <Button Name=\"server_toggle\" Text=\"Custom server\" Style=\"Flat\"\n"
@@ -133,10 +137,10 @@ const char gui_xml_data[] =
 	"          </HBox>\n"
 	"        </VBox>\n"
 	"\n"
-	"        <Separator Orientation=\"Vertical\"/>\n"
+	"        <Separator Name=\"side_sep\" Orientation=\"Vertical\"/>\n"
 	"\n"
-	"        <!-- Players and chat -->\n"
-	"        <VBox Width=\"300\" Spacing=\"0\">\n"
+	"        <!-- Players and chat; hidden in practice -->\n"
+	"        <VBox Name=\"side\" Width=\"300\" Spacing=\"0\">\n"
 	"          <Label Text=\"Players\" Opacity=\"0.6\" Slot.Padding=\"14,12,14,6\"/>\n"
 	"          <VBox Name=\"players\" Spacing=\"2\" Slot.Padding=\"8,0,8,8\"/>\n"
 	"          <Separator/>\n"
@@ -153,4 +157,4 @@ const char gui_xml_data[] =
 	"  </Overlay>\n"
 	"</Window>\n"
 	"";
-const unsigned int gui_xml_len = 8141;
+const unsigned int gui_xml_len = 8441;

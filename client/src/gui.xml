@@ -35,6 +35,10 @@
                   Metric.ControlHeight="48" Slot.Padding="0,10,0,0">
             <Label Text="Join room" TextSize="20" Slot.HAlign="Center" Slot.VAlign="Center"/>
           </Button>
+          <!-- Draw alone, with no server -->
+          <Button Name="practice" OnClicked="ui.practice" Metric.ControlHeight="40">
+            <Label Text="Practice drawing" TextSize="18" Slot.HAlign="Center" Slot.VAlign="Center"/>
+          </Button>
           <Label Name="connect_error" Text="" Color="#FF6B6B" Wrap="true" MaxWidth="340"
                  TextSize="18"/>
           <Button Name="server_toggle" Text="Custom server" Style="Flat"
@@ -132,10 +136,10 @@
           </HBox>
         </VBox>
 
-        <Separator Orientation="Vertical"/>
+        <Separator Name="side_sep" Orientation="Vertical"/>
 
-        <!-- Players and chat -->
-        <VBox Width="300" Spacing="0">
+        <!-- Players and chat; hidden in practice -->
+        <VBox Name="side" Width="300" Spacing="0">
           <Label Text="Players" Opacity="0.6" Slot.Padding="14,12,14,6"/>
           <VBox Name="players" Spacing="2" Slot.Padding="8,0,8,8"/>
           <Separator/>

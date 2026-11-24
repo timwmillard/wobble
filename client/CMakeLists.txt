@@ -102,9 +102,11 @@ if(EMSCRIPTEN)
     # wobble.html / .js / .wasm, served by the Phoenix app from /play
     set_target_properties(${PROJECT_NAME} PROPERTIES SUFFIX ".html")
     target_link_options(${PROJECT_NAME} PRIVATE
-        "--shell-file=${CMAKE_SOURCE_DIR}/src/web/shell.html")
+        "--shell-file=${CMAKE_SOURCE_DIR}/src/web/shell.html"
+        "--js-library=${CMAKE_SOURCE_DIR}/src/web/wobble_lib.js")
     set_property(TARGET ${PROJECT_NAME} APPEND PROPERTY LINK_DEPENDS
-        "${CMAKE_SOURCE_DIR}/src/web/shell.html")
+        "${CMAKE_SOURCE_DIR}/src/web/shell.html"
+        "${CMAKE_SOURCE_DIR}/src/web/wobble_lib.js")
 
     # Copy the page into the server's static files; "" to skip.
     set(WOBBLE_WEB_DEPLOY_DIR "${CMAKE_SOURCE_DIR}/../backend/priv/static/play"

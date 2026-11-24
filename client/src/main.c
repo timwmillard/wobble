@@ -243,8 +243,13 @@ static void refresh_ranking(void) {
 static void refresh_phase(void) {
    const game_state *st = game_get_state(g);
    bool in_room = st->phase >= GAME_LOBBY;
+   static bool was_in_room;
    show(connect_screen, !in_room);
    show(game_screen, in_room);
+   // The focused field just went away with the connect screen; type to chat.
+   if (in_room && !was_in_room)
+      Rwidget_focus(guess_input);
+   was_in_room = in_room;
    Rwidget_set_enabled(join_button, st->phase == GAME_OFFLINE);
    Rbutton_set_text(join_button,
                     st->phase == GAME_OFFLINE ? "Join room" : "Joining...");
@@ -319,6 +324,22 @@ static void refresh_phase(void) {
                                                 : "Type your guess...");
 }
 
+#ifdef __EMSCRIPTEN__
+void wobble_show_room(const char *code); // web/wobble_lib.js
+#endif
+
+// In the browser, once we are in a room the address bar shows its link,
+// /r/<code>, ready to share.
+static void show_room_in_url(void) {
+#ifdef __EMSCRIPTEN__
+   static char shown[32];
+   if (strcmp(shown, room) == 0)
+      return;
+   snprintf(shown, sizeof(shown), "%s", room);
+   wobble_show_room(room);
+#endif
+}
+
 static void refresh(u32 dirty) {
    if (dirty & GAME_DIRTY_ERROR)
       set_text(connect_error, game_get_state(g)->error);
@@ -336,6 +357,7 @@ static void refresh(u32 dirty) {
    if (st->token[0]) {
       snprintf(saved_token, sizeof(saved_token), "%s", st->token);
       snprintf(saved_room, sizeof(saved_room), "%s", room);
+      show_room_in_url();
    }
 }
 

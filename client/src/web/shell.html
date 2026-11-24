@@ -33,6 +33,19 @@ var Module = {
     onRuntimeInitialized: function() {
         document.getElementById("status").hidden = true;
     },
+    // Raven focuses its first field, but the browser's own focus stays on the
+    // page until a click, so typing went nowhere. Once Raven has a text field
+    // focused, move the browser's focus into it, unless the page has given
+    // it to something else meanwhile.
+    postRun: [function focusFirstField() {
+        var frames = 0;
+        (function poll() {
+            var raven = Module.ravenDOM;
+            if (document.activeElement && document.activeElement !== document.body) return;
+            if (raven && raven.field.mode) return raven.focusInput();
+            if (++frames < 120) requestAnimationFrame(poll);
+        })();
+    }],
     onAbort: function(reason) {
         document.getElementById("status").hidden = false;
         document.getElementById("status").textContent = "Wobble couldn't start: " + reason;

@@ -36,7 +36,9 @@ It copies `wobble.html`, `.js` and `.wasm` into `../backend/priv/static/play`
 (git-ignored; set `-DWOBBLE_WEB_DEPLOY_DIR=` to skip). Phoenix serves the
 page at `/` and `/r/<code>`: the room comes from the link, the server is the
 page's own host, and `?name=Ana` fills the name, so
-`http://localhost:4000/r/abcd?name=Ana` joins straight away.
+`http://localhost:4000/r/abcd?name=Ana` joins straight away. Once in a room
+the address bar shows its link (`/r/<code>`, without `?name=`), ready to
+share. Browser-side helpers the C code calls live in `src/web/wobble_lib.js`.
 
 The web build uses the committed `src/gui_xml.h` (it can't run `embedc`), so
 build natively once after editing `gui.xml`.

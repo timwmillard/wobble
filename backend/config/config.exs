@@ -8,7 +8,11 @@
 import Config
 
 config :backend,
-  generators: [timestamp_type: :utc_datetime]
+  generators: [timestamp_type: :utc_datetime],
+  # The /download page: the source repo, and where the native builds live
+  # (attached to GitHub releases by .github/workflows/release.yml).
+  repo_url: "https://github.com/timwmillard/wobble",
+  downloads_url: "https://github.com/timwmillard/wobble/releases/latest/download"
 
 # Configure the endpoint
 config :backend, BackendWeb.Endpoint,

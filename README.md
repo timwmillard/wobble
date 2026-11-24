@@ -7,7 +7,8 @@ the drawer picks one of three words and draws it, and everyone else races to
 guess it in chat. Play in the browser from a link, or in the native desktop
 app. Both play together in the same room.
 
-**Play now:** <https://wobblegame.fly.dev>
+**Play now:** <https://wobblegame.fly.dev> ·
+**Desktop app:** <https://wobblegame.fly.dev/download>
 
 ## How it plays
 
@@ -87,6 +88,14 @@ fly deploy --ha=false   # one machine: rooms live in memory
 
 See [`backend/README.md`](backend/README.md#deploying-to-flyio) for first-time
 setup.
+
+Desktop builds are published separately: push a `v*` tag and the Release
+workflow builds `Wobble-macOS.dmg` and `.zip` and attaches them to a GitHub
+release. The `/download` page always links to the latest release.
+
+```sh
+git tag v0.1.0 && git push origin v0.1.0
+```
 
 ## License
 

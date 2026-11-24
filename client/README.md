@@ -11,7 +11,14 @@ cmake -B build && cmake --build build
 ./build/wobble https://wobblegame.fly.dev/r/abcd # a room link
 ctest --test-dir build                           # core tests
 make release                                     # build-release/, prod server
+make dmg                                         # macOS: Wobble-macOS.dmg/.zip
 ```
+
+`make dmg` is a universal (arm64 + x86_64) release build, ad-hoc signed and
+packaged by CPack into `build-release/Wobble-macOS.dmg` and `.zip`. Pushing a
+`v*` tag runs `.github/workflows/release.yml`, which does the same on a macOS
+runner and attaches both files to the GitHub release; the server's
+`/download` page links to the latest release's copies.
 
 ## Room links
 

@@ -1,0 +1,80 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- Wobble app icon. Source for Wobble.icns; see README.md here. Drawn on
+       the macOS icon grid: an 824px body inset 100px, with room for shadow. -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3B4150"/>
+      <stop offset="1" stop-color="#191B22"/>
+    </linearGradient>
+    <linearGradient id="ink" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#EF130B"/>
+      <stop offset="0.25" stop-color="#FF7100"/>
+      <stop offset="0.45" stop-color="#FFC800"/>
+      <stop offset="0.65" stop-color="#00CC00"/>
+      <stop offset="0.85" stop-color="#00B2FF"/>
+      <stop offset="1" stop-color="#7A3CE0"/>
+    </linearGradient>
+    <linearGradient id="paper" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#ECEEF3"/>
+    </linearGradient>
+    <linearGradient id="pencil" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFE15A"/>
+      <stop offset="0.5" stop-color="#FFC400"/>
+      <stop offset="1" stop-color="#E09A00"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="12" stdDeviation="14" flood-color="#000" flood-opacity="0.35"/>
+    </filter>
+    <filter id="soft" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#000" flood-opacity="0.45"/>
+    </filter>
+    <clipPath id="body">
+      <rect x="100" y="100" width="824" height="824" rx="185"/>
+    </clipPath>
+  </defs>
+
+  <!-- Body -->
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#bg)" filter="url(#shadow)"/>
+  <g clip-path="url(#body)">
+    <!-- faint confetti dots from the palette -->
+    <circle cx="210" cy="225" r="16" fill="#FF7100" opacity="0.55"/>
+    <circle cx="820" cy="200" r="12" fill="#00B2FF" opacity="0.55"/>
+    <circle cx="830" cy="835" r="10" fill="#FFE400" opacity="0.5"/>
+    <circle cx="180" cy="760" r="11" fill="#A300BA" opacity="0.55"/>
+    <rect x="1" y="1" width="1022" height="1022" fill="none" stroke="#FFFFFF" stroke-opacity="0.06" stroke-width="4"/>
+  </g>
+  <rect x="102" y="102" width="820" height="820" rx="183" fill="none" stroke="#FFFFFF" stroke-opacity="0.10" stroke-width="4"/>
+
+  <!-- The canvas card, tilted -->
+  <g transform="rotate(-7 512 500)" filter="url(#soft)">
+    <rect x="218" y="258" width="588" height="476" rx="44" fill="url(#paper)"/>
+  </g>
+
+  <!-- The scribble: a wobbly W in one rainbow stroke -->
+  <g transform="rotate(-7 512 500)">
+    <path d="M300 372
+             C 318 470, 336 560, 380 616
+             C 404 648, 430 604, 446 560
+             C 466 500, 480 452, 512 450
+             C 546 450, 556 520, 574 574
+             C 590 622, 620 650, 646 606
+             C 684 540, 704 450, 724 360"
+          fill="none" stroke="url(#ink)" stroke-width="58" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <!-- Pencil, its tip where the stroke ends -->
+  <g transform="translate(707 333) rotate(135) scale(0.66) translate(0 -160)" filter="url(#soft)">
+    <!-- body -->
+    <rect x="-40" y="-190" width="80" height="250" fill="url(#pencil)"/>
+    <rect x="-14" y="-190" width="10" height="250" fill="#FFFFFF" opacity="0.25"/>
+    <!-- ferrule and eraser -->
+    <rect x="-40" y="-236" width="80" height="48" fill="#C9CED8"/>
+    <rect x="-40" y="-222" width="80" height="6" fill="#9AA1AE"/>
+    <rect x="-40" y="-206" width="80" height="6" fill="#9AA1AE"/>
+    <path d="M-40 -236 V-262 a26 26 0 0 1 26 -26 H14 a26 26 0 0 1 26 26 V-236 Z" fill="#F28CA8"/>
+    <!-- sharpened wood and graphite -->
+    <path d="M-40 60 L0 160 L40 60 Z" fill="#F2C58E"/>
+    <path d="M-16 120 L0 160 L16 120 Z" fill="#2A2D36"/>
+  </g>
+</svg>

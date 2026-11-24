@@ -20,6 +20,12 @@ defmodule BackendWeb.Router do
     get "/r/:code", PlayController, :show
   end
 
+  scope "/", BackendWeb do
+    pipe_through :browser
+
+    get "/download", DownloadController, :index
+  end
+
   # Other scopes may use custom stacks.
   # scope "/api", BackendWeb do
   #   pipe_through :api

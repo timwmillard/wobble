@@ -3,6 +3,7 @@
 
 /build
 /build-web
+/build-release
 *.o
 .idea
 /cmake-build-debug

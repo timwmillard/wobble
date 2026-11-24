@@ -194,3 +194,23 @@ add_executable(link_test tests/link_test.c)
 target_compile_options(link_test PRIVATE ${WARNINGS})
 target_link_libraries(link_test wobble_core)
 add_test(NAME link_test COMMAND link_test)
+
+# Packaging: `cpack --config build-release/CPackConfig.cmake` (make dmg).
+# On macOS that's Wobble-macOS.dmg (the app plus an Applications link to
+# drag it onto) and Wobble-macOS.zip (the bare app). The file names carry no
+# version, so the latest GitHub release always has the same download URLs
+# for the /download page; the version is the release's tag.
+if(APPLE)
+    # Only the app: the "app" component leaves out what Raven installs.
+    install(TARGETS ${PROJECT_NAME} BUNDLE DESTINATION . COMPONENT app)
+    set(CPACK_INSTALL_CMAKE_PROJECTS "${CMAKE_BINARY_DIR};${PROJECT_NAME};app;/")
+    set(CPACK_PACKAGE_NAME "Wobble")
+    set(CPACK_PACKAGE_VENDOR "Wobble")
+    set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
+    set(CPACK_PACKAGE_FILE_NAME "Wobble-macOS")
+    set(CPACK_GENERATOR "DragNDrop;ZIP")
+    set(CPACK_DMG_VOLUME_NAME "Wobble")
+    set(CPACK_DMG_FORMAT "UDZO")
+    set(CPACK_INCLUDE_TOPLEVEL_DIRECTORY OFF)
+    include(CPack)
+endif()

@@ -1,5 +1,5 @@
 
-.PHONY: all run test web release
+.PHONY: all run test web release dmg
 
 # The server a release build's bare room codes join.
 RELEASE_SERVER ?= wss://wobblegame.fly.dev
@@ -26,6 +26,15 @@ build-web:
 release:
 	@cmake -B build-release -DCMAKE_BUILD_TYPE=Release -DWOBBLE_SERVER=$(RELEASE_SERVER)
 	@cmake --build build-release --parallel $(NPROC)
+
+# macOS: a universal (Apple Silicon + Intel) release build, packaged as
+# build-release/Wobble-macOS.dmg and .zip. Ad-hoc signed only, not notarized.
+dmg:
+	@cmake -B build-release -DCMAKE_BUILD_TYPE=Release -DWOBBLE_SERVER=$(RELEASE_SERVER) \
+		-DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
+	@cmake --build build-release --parallel $(NPROC)
+	@codesign --force --deep --sign - build-release/wobble.app
+	@cd build-release && cpack
 
 clean:
 	@rm -rf build build-web build-release

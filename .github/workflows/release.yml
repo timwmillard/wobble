@@ -1,0 +1,44 @@
+# Builds the native apps and attaches them to a GitHub release.
+#
+#   git tag v0.1.0 && git push origin v0.1.0
+#
+# The /download page links to releases/latest/download/<file>, so the file
+# names here must match the ones in BackendWeb.DownloadController.
+
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to (re)build and upload, e.g. v0.1.0"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  macos:
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: client
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - run: make dmg
+      - name: Upload to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$TAG" >/dev/null 2>&1 \
+            || gh release create "$TAG" --title "Wobble $TAG" --generate-notes
+          gh release upload "$TAG" --clobber \
+            build-release/Wobble-macOS.dmg build-release/Wobble-macOS.zip
+
+  # linux / windows: placeholders, see the /download page.

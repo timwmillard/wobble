@@ -29,8 +29,8 @@ add_subdirectory(${CMAKE_BINARY_DIR}/patched/Raven
 # null-terminated C string (gui_xml_data / gui_xml_len). A browser build
 # can't run a tool it compiles to WebAssembly, nor a cross build (e.g. MinGW
 # for Windows) one it compiles for another system, so those use the
-# committed gui_xml.h and art_svg.h; build natively once after editing
-# gui.xml or src/art.
+# committed gui_xml.h, art_svg.h and words_txt.h; build natively once after
+# editing gui.xml, src/art or the word list.
 if(EMSCRIPTEN OR CMAKE_CROSSCOMPILING)
     add_custom_target(generate_gui)
 else()
@@ -49,9 +49,17 @@ else()
         OUTPUT ${CMAKE_SOURCE_DIR}/src/art_svg.h
         TEXT
     )
+    # The server's word list, for the words to draw in practice mode.
+    embedc_generate(
+        INPUT  ${CMAKE_SOURCE_DIR}/../backend/priv/words/en.txt
+        OUTPUT ${CMAKE_SOURCE_DIR}/src/words_txt.h
+        NAME   words_txt
+        TEXT
+    )
     add_custom_target(generate_gui DEPENDS
         ${CMAKE_SOURCE_DIR}/src/gui_xml.h
         ${CMAKE_SOURCE_DIR}/src/art_svg.h
+        ${CMAKE_SOURCE_DIR}/src/words_txt.h
     )
 endif()
 

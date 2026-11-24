@@ -27,6 +27,7 @@
 
 typedef enum {
    GAME_OFFLINE,    // not connected yet, or the connection is gone
+   GAME_PRACTICE,   // drawing alone, offline: nothing is sent
    GAME_JOINING,    // connected, waiting for the join reply
    GAME_LOBBY,
    GAME_CHOOSING,
@@ -120,6 +121,12 @@ void game_disconnected(game *g, const char *reason);
 // chat and drawing forgotten. The caller closes the connection.
 void game_leave(game *g);
 
+// Draw alone with no server: the canvas and tools work as for the drawer
+// but nothing is sent. Starts from a blank canvas; game_leave ends it.
+void game_practice_start(game *g);
+// The word shown to draw in practice ("" for none). Ignored outside it.
+void game_practice_word(game *g, string word);
+
 // One text frame from the server.
 void game_on_message(game *g, const char *text, usize len, u64 now_ms);
 // Heartbeats and stroke chunking; call every frame or at least every 33 ms.
@@ -144,7 +151,7 @@ const game_chat_line *game_chat(const game *g, usize *count);
 const game_player *game_me(const game *g);
 bool game_is_host(const game *g);
 bool game_is_drawer(const game *g);
-// True while we're the drawer and the drawing phase is on.
+// True while we're the drawer and the drawing phase is on, or practising.
 bool game_can_draw(const game *g);
 int game_time_left_ms(const game *g, u64 now_ms);
 // What changed since the last call (GAME_DIRTY_* bits); clears them.

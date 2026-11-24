@@ -1,0 +1,46 @@
+--- a/src/widgets/text_editor.c
++++ b/src/widgets/text_editor.c
+@@ -1833,7 +1833,8 @@
+ 	rvn_rect_t vertical, horizontal;
+ 	rvn_vec2_t origin = rvn_widget_origin(widget);
+ 	/* (the text has the keyboard; the frame shows the focus of the widget, which may be in the find bar) */
+-	int focused = (widget->flags & RVN_WF_FOCUSED) != 0 && !rvn_ed_find_has_keys(ed);
++	int focused = (widget->flags & RVN_WF_FOCUSED) != 0 && !rvn_ed_find_has_keys(ed) &&
++		(!widget->window || widget->window->active);
+ 	int has_selection = rvn_ed_has_selection(ed);
+ 	rvn_ed_pos_t sel_min = rvn_ed_sel_min(ed), sel_max = rvn_ed_sel_max(ed);
+ 	rvn_color_t text = rvn_widget_text_color(widget, painter);
+@@ -3886,7 +3887,8 @@
+ static void rvn_ed_blink(Rid timer, void* user_data) {
+ 	rvn_widget_t* widget = rvn_widget_get((Rid)(uintptr_t)user_data);
+ 	RVN_UNUSED(timer);
+-	if (widget) rvn_widget_invalidate_paint(widget);
++	/* (no caret shows in a window in the background: nothing to repaint) */
++	if (widget && (!widget->window || widget->window->active)) rvn_widget_invalidate_paint(widget);
+ }
+ 
+ static void rvn_ed_set_focused(rvn_widget_t* widget, int focused) {
+--- a/src/widgets/text_input.c
++++ b/src/widgets/text_input.c
+@@ -58,7 +58,8 @@
+ 	rvn_text_input_t* input = (rvn_text_input_t*)widget;
+ 	rvn_rect_t rect = rvn_rect(0.0f, 0.0f, widget->rect.w, widget->rect.h);
+ 	rvn_rect_t area = rvn_text_input_area(widget);
+-	int focused = (widget->flags & RVN_WF_FOCUSED) != 0;
++	/* (a window in the background keeps its focused widget, but shows no focus or caret) */
++	int focused = (widget->flags & RVN_WF_FOCUSED) != 0 && (!widget->window || widget->window->active);
+ 	rvn_color_t fill = rvn_widget_color(widget, R_COLOR_INPUT);
+ 	/* the focus ring closes in on the field instead of just appearing */
+ 	float focus = rvn_paint_spring(painter, &widget->press, focused ? 1.0f : 0.0f, R_MOTION_BOUNCY);
+--- a/src/widgets/textedit.c
++++ b/src/widgets/textedit.c
+@@ -140,7 +140,8 @@
+ static void rvn_te_blink(Rid timer, void* user_data) {
+ 	rvn_widget_t* widget = rvn_widget_get((Rid)(uintptr_t)user_data);
+ 	RVN_UNUSED(timer);
+-	if (widget) rvn_widget_invalidate_paint(widget);
++	/* (no caret shows in a window in the background: nothing to repaint) */
++	if (widget && (!widget->window || widget->window->active)) rvn_widget_invalidate_paint(widget);
+ }
+ 
+ void rvn_textedit_set_focused(rvn_textedit_t* edit, rvn_widget_t* widget, int focused) {

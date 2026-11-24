@@ -11,7 +11,7 @@ We are building a Pictionary-style party game. Players join a room. They take tu
 | Layer | Choice | Why |
 | --- | --- | --- |
 | Backend | Elixir + Phoenix (Channels, Presence) | One supervised process per room owns the game; WebSocket broadcast comes built in; it scales to thousands of rooms on one small box |
-| Database | SQLite via Ecto (`ecto_sqlite3`) | Live game state stays in memory in the room processes. The database is only for what has to outlast a game (word lists, stats, accounts later). SQLite needs no server; moving to Postgres at deploy time means changing the adapter and config, not the code |
+| Database | None for now | Live game state stays in memory in the room processes and the word list is a file compiled in, so nothing needs to outlast a game yet. Ecto was removed until something does (stats, accounts, custom word lists); then add Ecto on SQLite (`ecto_sqlite3`) with the file on a Fly volume, or Postgres if we need more than one node |
 | Client UI | [Raven](https://oscar-soirey.github.io/Raven/) (C11) | One C codebase targets Windows, Linux and macOS (Vulkan) and the browser (WebAssembly + WebGL 2); supports pen input and custom drawing |
 | Client networking | Our existing C network library, **webc** (copied from `chat/src/net` into `client/src/net`) | Native: HTTP/1.1 + WebSocket (RFC 6455) + SSE on the OS's TLS, so `wss://` works today. Web: needs a browser-WebSocket transport (see Risks) |
 | JSON | Our own `json.c` / `json.h` (copied from `chat/src`) | Arena-backed parser (`json_parse`, `json_get`, `json_at`, `json_str`) plus `json_write_string` for output; plain C11, no extra dependency |
@@ -248,7 +248,7 @@ There are five milestones, each ending in something you can demo. M0 decides whe
 
 ### M1 — Protocol and server
 
-- [x] Phoenix app in `backend/` with Ecto on SQLite (`ecto_sqlite3`; `backend_dev.db` / `backend_test.db`, git-ignored); add `Rules`, `Room`, `RoomChannel` and the word list (Presence dropped, see Backend design)
+- [x] Phoenix app in `backend/` (Ecto later removed, see Database); add `Rules`, `Room`, `RoomChannel` and the word list (Presence dropped, see Backend design)
 - [x] The full turn flow with timers, hints, scoring, and leaving or rejoining (rejoin by token pulled forward from M4)
 - [x] C core (`client/src/phx.c`, `game.c`) with a fake-transport test harness (`client/tests/game_test.c`)
 - [x] Bots: `client/src/bot.c` (`wobble_bot`) on the same core and transport as the app; bots in one process share the drawer's word so some guesses are right
@@ -315,8 +315,7 @@ Use one repo with the server and client side by side. CI builds all three target
 wobble/
   SCRIBBLE_PLAN.md
   pen_test/               # Raven pen/tablet reference (RPenEvent, custom paint)
-  backend/                # Phoenix app `backend` (Backend / BackendWeb); Ecto on
-                          # SQLite (ecto_sqlite3), Postgres possible at deploy
+  backend/                # Phoenix app `backend` (Backend / BackendWeb); no database
     lib/backend/          # room.ex, rules.ex, words.ex, application.ex
     lib/backend_web/      # endpoint, channels/user_socket, channels/room_channel,
                           # presence, page_controller
@@ -340,7 +339,7 @@ wobble/
 
 **Deployment**
 
-- Server: a Phoenix release in a Docker image on Fly.io, Render or a small VPS. A single node is enough for v1. The SQLite file lives on a persistent volume (`DATABASE_PATH`); switch to Postgres only if we need more than one node. Room state lives in memory, so a redeploy ends running games; announce deploys or drain first.
+- Server: a Phoenix release in a Docker image on Fly.io, Render or a small VPS. A single node is enough for v1. There is no database yet; when one arrives, a SQLite file on a persistent volume is enough for one node. Room state lives in memory, so a redeploy ends running games; announce deploys or drain first.
 - TLS: Caddy or the platform's proxy terminates HTTPS and WSS.
 - Web client: served by Phoenix from `priv/static/play`. Cache the `.wasm` file with a content hash in its name.
 - Native client: GitHub Releases with zips for Windows, Linux (AppImage) and macOS (signed and notarized `.app` with MoltenVK bundled). The client checks the server's `client` version on join and shows "please update" when it's too old.

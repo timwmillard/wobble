@@ -12,9 +12,6 @@ kill_signal = "SIGTERM"
 [env]
   PHX_HOST = "wobblegame.fly.dev"
   PORT = "8080"
-  # SQLite on the machine's ephemeral disk: nothing is stored there yet.
-  # Mount a volume here before keeping anything that must survive a deploy.
-  DATABASE_PATH = "/app/backend.db"
 
 [http_service]
   internal_port = 8080

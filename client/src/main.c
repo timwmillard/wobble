@@ -684,6 +684,16 @@ static void on_copy_link(Rid sender, const char *action, void *user_data) {
    copied_until = now_ms() + 2000;
 }
 
+// Web only: the download page for the native apps, on this page's own host.
+static void on_get_app(Rid sender, const char *action, void *user_data) {
+   (void)sender;
+   (void)action;
+   (void)user_data;
+#ifdef __EMSCRIPTEN__
+   wobble_open("/download");
+#endif
+}
+
 static void on_toggle_server(Rid sender, const char *action, void *user_data) {
    (void)sender;
    (void)action;
@@ -793,6 +803,7 @@ int main(int argc, char *argv[]) {
    Raction_bind("ui.leave", on_leave, NULL);
    Raction_bind("ui.copy_link", on_copy_link, NULL);
    Raction_bind("ui.toggle_server", on_toggle_server, NULL);
+   Raction_bind("ui.get_app", on_get_app, NULL);
    Raction_bind("ui.start", on_start, NULL);
    Raction_bind("ui.choose0", on_choose, (void *)(intptr_t)0);
    Raction_bind("ui.choose1", on_choose, (void *)(intptr_t)1);
@@ -874,6 +885,7 @@ int main(int argc, char *argv[]) {
 #ifdef __EMSCRIPTEN__
    // The page's own host is the server; there is nothing to choose.
    show(server_toggle, false);
+   show(find("get_app"), true);
 #endif
    if (arg_room)
       Rtext_input_set_text(room_input, arg_room);

@@ -41,6 +41,10 @@ const char gui_xml_data[] =
 	"          <Button Name=\"server_toggle\" Text=\"Custom server\" Style=\"Flat\"\n"
 	"                  OnClicked=\"ui.toggle_server\" Metric.ControlHeight=\"30\" Opacity=\"0.6\"\n"
 	"                  Slot.HAlign=\"Center\"/>\n"
+	"          <!-- Web only, in place of \"Custom server\" (main.c) -->\n"
+	"          <Button Name=\"get_app\" Text=\"Get the desktop app\" Style=\"Flat\"\n"
+	"                  OnClicked=\"ui.get_app\" Metric.ControlHeight=\"30\" Opacity=\"0.6\"\n"
+	"                  Slot.HAlign=\"Center\" Visibility=\"Collapsed\"/>\n"
 	"        </VBox>\n"
 	"      </Border>\n"
 	"      </Overlay>\n"
@@ -163,4 +167,4 @@ const char gui_xml_data[] =
 	"  </Overlay>\n"
 	"</Window>\n"
 	"";
-const unsigned int gui_xml_len = 9195;
+const unsigned int gui_xml_len = 9479;

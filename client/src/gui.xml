@@ -40,6 +40,10 @@
           <Button Name="server_toggle" Text="Custom server" Style="Flat"
                   OnClicked="ui.toggle_server" Metric.ControlHeight="30" Opacity="0.6"
                   Slot.HAlign="Center"/>
+          <!-- Web only, in place of "Custom server" (main.c) -->
+          <Button Name="get_app" Text="Get the desktop app" Style="Flat"
+                  OnClicked="ui.get_app" Metric.ControlHeight="30" Opacity="0.6"
+                  Slot.HAlign="Center" Visibility="Collapsed"/>
         </VBox>
       </Border>
       </Overlay>

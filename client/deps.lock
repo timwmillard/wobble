@@ -2,9 +2,9 @@
 return {
   Raven = {
     branch = "main",
-    commit = "fc37a06763395c9557c1723b41f1bd7b89e2caef",
+    commit = "5f08bd50167920e9c3c6eb0c9977d7eaac2b303d",
     dest = "deps/Raven",
-    tree_sha256 = "c50eea62844f8af738400511a787318441de967fdea310c03e60bf196f135ca4",
+    tree_sha256 = "633acb492a1fc34c40e4fdafb5d74756047b8bb02fbf2a696530aaf7b8a4de9d",
     url = "https://github.com/oscar-soirey/Raven.git",
   },
   cbase = {

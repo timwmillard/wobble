@@ -10,20 +10,7 @@ if(APPLE)
     set(RAVEN_BACKEND_VULKAN OFF CACHE BOOL "" FORCE)
 endif()
 
-# Raven is built from a patched copy in the build directory; deps/Raven
-# stays as vendored. Each patch in patch/ waits on a fix upstream: drop it
-# once a re-vendored Raven has the fix.
-#   raven-inactive-focus: a text field in a window in the background showed
-#   its focus ring and a blinking caret.
-include(cmake/PatchDep.cmake)
-patch_dep(
-    SOURCE  ${CMAKE_SOURCE_DIR}/deps/Raven
-    BINARY  ${CMAKE_BINARY_DIR}/patched/Raven
-    EXCLUDE bindings docs openspec tools
-    PATCHES ${CMAKE_SOURCE_DIR}/patch/raven-inactive-focus.patch
-)
-add_subdirectory(${CMAKE_BINARY_DIR}/patched/Raven
-    ${CMAKE_BINARY_DIR}/deps/Raven)
+add_subdirectory(deps/Raven)
 
 # Build the embedc tool (standalone) and embed gui.xml into gui_xml.h as a
 # null-terminated C string (gui_xml_data / gui_xml_len). A browser build

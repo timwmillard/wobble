@@ -25,7 +25,6 @@ app. Both play together in the same room.
 | --- | --- |
 | [`backend/`](backend) | Elixir + Phoenix server. Runs one process per room, which holds the game state. Also serves the web client |
 | [`client/`](client) | C11 client built on [Raven](https://oscar-soirey.github.io/Raven/), for macOS, Linux, Windows and WebAssembly |
-| [`pen_test/`](pen_test) | A Raven test bench for pen and graphics-tablet input |
 | [`SCRIBBLE_PLAN.md`](SCRIBBLE_PLAN.md) | Design doc: architecture, game rules and wire protocol |
 | `Dockerfile`, `fly.toml` | Production image (web client + Phoenix release) and Fly.io config |
 

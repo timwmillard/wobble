@@ -4,7 +4,6 @@
 .worktrees
 .claude
 **/.DS_Store
-pen_test/
 
 # client build output
 client/build/

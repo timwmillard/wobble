@@ -194,7 +194,7 @@ The network layer and the UI may run on different threads. Push incoming frames 
 
 **Canvas widget**
 
-- Raven API, as used in `pen_test/main.c`: an `R_WIDGET_CUSTOM` with `Rcustom_set_paint_callback` (draw with `Rdraw_line` / `Rdraw_circle` / `Rdraw_rect`) and `Rwidget_set_pen_callback` for input (`RPenEvent`: `phase` down/move/up/hover/leave, `local_x/y`, `pressure`, `eraser`). `Rwidget_set_pen_mouse(..., R_TRUE)` so the mouse draws too; `Rwidget_invalidate` to repaint.
+- Raven API, as used in `client/src/canvas.c`: an `R_WIDGET_CUSTOM` with `Rcustom_set_paint_callback` (draw with `Rdraw_line` / `Rdraw_circle` / `Rdraw_rect`) and `Rwidget_set_pen_callback` for input (`RPenEvent`: `phase` down/move/up/hover/leave, `local_x/y`, `pressure`, `eraser`). `Rwidget_set_pen_mouse(..., R_TRUE)` so the mouse draws too; `Rwidget_invalidate` to repaint.
 - Map the 800×600 game space into the widget with letterboxing. Convert pointer and pen events back into game space before calling `game_pen_*`.
 - *(Not done yet: v1 repaints every stroke each frame, which is fine for a turn's worth of ink.)* Keep a cached layer (texture) of finished strokes, and draw only the stroke in progress live. Redraw the cache from the stroke list on `undo`, `clear` or resize.
 - Draw each segment as a thick line with round caps, at the stroke's size. Use pen pressure as width when it's available.
@@ -314,7 +314,6 @@ Use one repo with the server and client side by side. CI builds all three target
 ```text
 wobble/
   SCRIBBLE_PLAN.md
-  pen_test/               # Raven pen/tablet reference (RPenEvent, custom paint)
   backend/                # Phoenix app `backend` (Backend / BackendWeb); no database
     lib/backend/          # room.ex, rules.ex, words.ex, application.ex
     lib/backend_web/      # endpoint, channels/user_socket, channels/room_channel,
